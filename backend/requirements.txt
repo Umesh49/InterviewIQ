@@ -1,0 +1,16 @@
+Django>=4.2,<5.0
+djangorestframework
+djangorestframework_simplejwt
+django-cors-headers
+python-dotenv
+requests
+google-generativeai
+openai>=1.0.0
+bytez
+language-tool-python>=2.7.0
+numpy
+pandas
+pillow
+colorama
+tqdm
+pdfminer.six
