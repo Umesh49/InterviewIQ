@@ -1,19 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { startInterview, submitResponse } from '../services/api';
+import { motion, AnimatePresence } from 'framer-motion';
+import api, { startInterview, submitResponse } from '../services/api';
 import useMediaPipe from '../hooks/useMediaPipe';
 import useDeepgram from '../hooks/useDeepgram';
 import { Volume2, Mic, CheckCircle, Play, ArrowRight } from 'lucide-react';
-
-/**
- * Interview Page - Complete Version
- * 
- * Features:
- * - TTS: Reads questions aloud (Deepgram Aura or browser)
- * - STT: Deepgram for Indian accent support, fallback to Web Speech API
- * - Voice Metrics: Tracks pauses, speaking pace, filler words, volume
- * - Camera: Uses MediaPipe for body language
- */
+import Loading from '../components/Loading';
 
 const Interview = () => {
     const { sessionId } = useParams();
@@ -21,6 +13,14 @@ const Interview = () => {
     const videoRef = useRef(null);
 
     // Deepgram STT Hook
+    // Deepgram STT Handler
+    const handleDeepgramTranscript = (data) => {
+        if (data.transcript && data.transcript.trim()) {
+            voiceMetricsRef.current.lastSpeechTime = Date.now();
+            voiceMetricsRef.current.isSpeaking = true;
+        }
+    };
+
     const {
         transcript: deepgramTranscript,
         interimTranscript: deepgramInterim,
@@ -29,7 +29,7 @@ const Interview = () => {
         startListening: startDeepgram,
         stopListening: stopDeepgram,
         resetTranscript: resetDeepgram
-    } = useDeepgram();
+    } = useDeepgram({ onTranscript: handleDeepgramTranscript });
 
     // Core State
     const [questions, setQuestions] = useState([]);
@@ -41,6 +41,8 @@ const Interview = () => {
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [error, setError] = useState(null);
     const [useDeepgramSTT, setUseDeepgramSTT] = useState(true); // Try Deepgram first
+    const [audioLevel, setAudioLevel] = useState(0); // 0-100 audio level for wave animation
+    const [needsResume, setNeedsResume] = useState(false); // True when session restored but needs user click
 
     // Transcript State (for fallback Web Speech API)
     const [transcript, setTranscript] = useState('');
@@ -83,6 +85,24 @@ const Interview = () => {
                 const data = await startInterview(sessionId);
                 if (data.questions) {
                     setQuestions(data.questions);
+
+                    // Restore progress from sessionStorage if available
+                    const savedIndex = sessionStorage.getItem(`interview_${sessionId}_index`);
+                    const savedStarted = sessionStorage.getItem(`interview_${sessionId}_started`);
+
+                    if (savedIndex !== null) {
+                        const index = parseInt(savedIndex, 10);
+                        if (index >= 0 && index < data.questions.length) {
+                            setCurrentQIndex(index);
+                            console.log('[Session] Restored to question', index + 1);
+                        }
+                    }
+                    // If session was started before refresh, show resume button instead of auto-starting
+                    // This is needed because browser blocks autoplay without user gesture
+                    if (savedStarted === 'true') {
+                        setNeedsResume(true);
+                        console.log('[Session] Session needs resume (autoplay policy)');
+                    }
                 }
             } catch (e) {
                 console.error('Failed to load interview:', e);
@@ -276,6 +296,13 @@ const Interview = () => {
 
             const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
             const normalizedVolume = average / 128; // 0-1 range
+            // Console log to see if we get ANY signal
+            if (Date.now() % 1000 < 50) { // Log roughly once per second
+                console.log(`[Audio Debug] Raw: ${average.toFixed(2)}, Norm: ${normalizedVolume.toFixed(3)}`);
+            }
+
+            // Update audio level for wave animation (0-100)
+            setAudioLevel(Math.min(100, normalizedVolume * 150));
 
             // Track volume samples
             voiceMetricsRef.current.volumeSamples.push(normalizedVolume);
@@ -337,10 +364,12 @@ const Interview = () => {
         return counts;
     };
 
-    // ==================== HANDLERS ====================
-
     const handleStartInterview = async () => {
         setHasStarted(true);
+        // Save interview started state to sessionStorage
+        sessionStorage.setItem(`interview_${sessionId}_started`, 'true');
+        sessionStorage.setItem(`interview_${sessionId}_index`, currentQIndex.toString());
+
         await initAudioAnalysis();
 
         // Resume AudioContext (requires user gesture)
@@ -353,49 +382,40 @@ const Interview = () => {
 
     const speakAndRecord = async (text) => {
         if (!text) return;
-        
-        // Try Deepgram Aura TTS first for better quality
-        const apiKey = import.meta.env.VITE_DEEPGRAM_API_KEY;
-        if (apiKey) {
-            setIsSpeaking(true);
-            try {
-                // Note: aura-asteria-en is a clear female voice
-                // Other options: aura-orion-en (male), aura-luna-en (female)
-                const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-asteria-en', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Token ${apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ text })
-                });
 
-                if (response.ok) {
-                    const audioBlob = await response.blob();
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    const audio = new Audio(audioUrl);
-                    
-                    audio.onended = () => {
-                        setIsSpeaking(false);
-                        URL.revokeObjectURL(audioUrl);
-                        setTimeout(() => startRecording(), 500);
-                    };
-                    
-                    audio.onerror = () => {
-                        console.warn('[TTS] Audio playback failed, using browser TTS');
-                        setIsSpeaking(false);
-                        browserSpeak(text);
-                    };
-                    
-                    await audio.play();
-                    return;
-                }
-            } catch (e) {
-                console.warn('[TTS] Deepgram Aura failed:', e);
-                setIsSpeaking(false);
+        // Try Backend TTS first
+        setIsSpeaking(true);
+        try {
+            // Using backend endpoint that wraps Deepgram Aura SDK
+            const response = await api.post('/interviews/speak/', { text }, {
+                responseType: 'blob' // Important: Expect a blob response
+            });
+
+            if (response.status === 200) {
+                const audioBlob = response.data;
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const audio = new Audio(audioUrl);
+
+                audio.onended = () => {
+                    setIsSpeaking(false);
+                    URL.revokeObjectURL(audioUrl);
+                    setTimeout(() => startRecording(), 500);
+                };
+
+                audio.onerror = () => {
+                    console.warn('[TTS] Audio playback failed, using browser TTS');
+                    setIsSpeaking(false);
+                    browserSpeak(text);
+                };
+
+                await audio.play();
+                return;
             }
+        } catch (e) {
+            console.warn('[TTS] Backend TTS failed:', e);
+            setIsSpeaking(false);
         }
-        
+
         // Fallback to browser TTS
         browserSpeak(text);
     };
@@ -532,8 +552,14 @@ const Interview = () => {
             isSubmittingRef.current = false;
 
             if (currentQIndex < questions.length - 1 || data.new_question) {
-                setCurrentQIndex(prev => prev + 1);
+                const nextIndex = currentQIndex + 1;
+                setCurrentQIndex(nextIndex);
+                // Save progress to sessionStorage
+                sessionStorage.setItem(`interview_${sessionId}_index`, nextIndex.toString());
             } else {
+                // Clear sessionStorage on completion
+                sessionStorage.removeItem(`interview_${sessionId}_index`);
+                sessionStorage.removeItem(`interview_${sessionId}_started`);
                 navigate(`/result/${sessionId}`);
             }
         } catch (e) {
@@ -563,7 +589,7 @@ const Interview = () => {
 
     if (error) {
         return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-dark-900 text-red-500 gap-4 p-8 text-center">
+            <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-950 text-red-500 gap-4 p-8 text-center">
                 <h2 className="text-2xl font-bold">Error</h2>
                 <p className="text-lg text-gray-300">{error}</p>
                 <button onClick={() => window.location.reload()} className="px-6 py-2 bg-gray-800 rounded-lg text-white hover:bg-gray-700">
@@ -574,11 +600,7 @@ const Interview = () => {
     }
 
     if (questions.length === 0) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-dark-900">
-                <div className="text-xl text-primary-400 font-semibold animate-pulse">Loading Interview...</div>
-            </div>
-        );
+        return <Loading />;
     }
 
     const currentQuestion = questions[currentQIndex];
@@ -588,7 +610,7 @@ const Interview = () => {
     // Deepgram Aura TTS with Indian accent
     const speakWithDeepgram = async (text) => {
         if (!text) return;
-        
+
         const apiKey = import.meta.env.VITE_DEEPGRAM_API_KEY;
         if (!apiKey) {
             // Fallback to browser TTS
@@ -597,7 +619,7 @@ const Interview = () => {
         }
 
         setIsSpeaking(true);
-        
+
         try {
             const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-asteria-en', {
                 method: 'POST',
@@ -615,18 +637,18 @@ const Interview = () => {
             const audioBlob = await response.blob();
             const audioUrl = URL.createObjectURL(audioBlob);
             const audio = new Audio(audioUrl);
-            
+
             audio.onended = () => {
                 setIsSpeaking(false);
                 URL.revokeObjectURL(audioUrl);
                 setTimeout(() => startRecording(), 500);
             };
-            
+
             audio.onerror = () => {
                 setIsSpeaking(false);
                 fallbackSpeak(text);
             };
-            
+
             await audio.play();
         } catch (e) {
             console.warn('[TTS] Deepgram Aura failed, using browser TTS:', e);
@@ -654,137 +676,347 @@ const Interview = () => {
     };
 
     return (
-        <div className="min-h-screen bg-dark-900 flex relative overflow-hidden">
-            {/* Camera Background - Full screen behind everything */}
-            <div className="absolute inset-0 z-0">
-                <video
-                    ref={videoRef}
-                    className={`w-full h-full object-cover ${!hasStarted ? 'opacity-20 blur-md' : 'opacity-30'} transition-all transform scale-x-[-1]`}
-                    autoPlay muted playsInline
-                />
+        <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 flex relative overflow-hidden">
+            {/* Ambient Background Effects */}
+            <div className="absolute inset-0 z-0 pointer-events-none">
+                <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-blue-500/5 rounded-full blur-[150px]" />
+                <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] bg-purple-500/5 rounded-full blur-[120px]" />
             </div>
 
-            {/* Start Overlay */}
-            {!hasStarted && (
-                <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm">
-                    <button
-                        onClick={handleStartInterview}
-                        className="group relative px-12 py-6 bg-white text-black rounded-full font-bold text-2xl hover:bg-gray-100 transition-all hover:scale-105 shadow-2xl flex items-center gap-4"
-                    >
-                        <Play fill="currentColor" size={32} />
-                        <span>Start Interview</span>
-                    </button>
-                    <p className="mt-6 text-gray-400">Click to enable audio & begin</p>
+            {/* Recording Indicator - Top Left */}
+            {isRecording && (
+                <div className="absolute top-4 left-4 z-50 px-4 py-2 bg-red-500/20 backdrop-blur-sm border border-red-500/30 rounded-full flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+                    <span className="text-red-400 font-mono font-bold text-sm">{formatTime(elapsedTime)}</span>
                 </div>
             )}
 
-            {/* Main Content Area - Left Side */}
-            <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-8">
-                {/* Question Counter */}
-                <div className="mb-4 text-gray-400 text-sm">
-                    Question {currentQIndex + 1} of {questions.length}
-                </div>
+            {/* Camera Background - Subtle */}
+            <div className="absolute inset-0 z-0">
+                <video
+                    ref={videoRef}
+                    className={`w-full h-full object-cover ${!hasStarted ? 'opacity-10 blur-lg' : 'opacity-15'} transition-all transform scale-x-[-1]`}
+                    autoPlay muted playsInline
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-zinc-950/80" />
+            </div>
 
-                {/* AI Avatar */}
-                <div className={`mb-6 w-20 h-20 rounded-full flex items-center justify-center shadow-xl transition-all ${isSpeaking ? 'bg-primary-500 animate-pulse scale-110' : 'bg-gray-800/80'}`}>
-                    {isSpeaking ? <Volume2 className="w-8 h-8 text-white" /> : <div className="text-2xl">🤖</div>}
-                </div>
+            {/* Start Overlay */}
+            <AnimatePresence>
+                {!hasStarted && !needsResume && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/70 backdrop-blur-md px-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+                            className="text-center mb-6 sm:mb-8"
+                        >
+                            <motion.div
+                                animate={{ y: [0, -8, 0] }}
+                                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                                className="w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-4 sm:mb-6 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-2xl shadow-blue-500/30"
+                            >
+                                <span className="text-white font-bold text-2xl sm:text-3xl">AI</span>
+                            </motion.div>
+                            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">Ready to Begin?</h1>
+                            <p className="text-zinc-400 text-sm sm:text-base">Your AI interviewer is waiting</p>
+                        </motion.div>
+                        <motion.button
+                            initial={{ y: 20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            transition={{ delay: 0.4 }}
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handleStartInterview}
+                            className="group relative px-8 sm:px-10 py-4 sm:py-5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-2xl font-bold text-lg sm:text-xl shadow-2xl shadow-blue-500/30 flex items-center gap-3"
+                        >
+                            <Play fill="currentColor" size={24} />
+                            <span>Start Interview</span>
+                        </motion.button>
+                        <motion.p
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 0.6 }}
+                            className="mt-4 sm:mt-6 text-zinc-500 text-xs sm:text-sm"
+                        >
+                            Click to enable audio & begin
+                        </motion.p>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
-                {/* Question Text */}
-                <h2 className="text-xl md:text-3xl font-bold text-white mb-8 leading-tight drop-shadow-lg text-center max-w-2xl">
-                    {currentQuestion?.text}
-                </h2>
+            {/* Resume Overlay - Shows when session was refreshed */}
+            <AnimatePresence>
+                {needsResume && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/70 backdrop-blur-md px-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+                            className="text-center mb-6 sm:mb-8"
+                        >
+                            <motion.div
+                                animate={{ scale: [1, 1.05, 1] }}
+                                transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+                                className="w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-4 sm:mb-6 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-2xl shadow-amber-500/30"
+                            >
+                                <span className="text-white font-bold text-2xl sm:text-3xl">{currentQIndex + 1}</span>
+                            </motion.div>
+                            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">Session Restored</h1>
+                            <p className="text-zinc-400 text-sm sm:text-base">Continue from Question {currentQIndex + 1}</p>
+                        </motion.div>
+                        <motion.button
+                            initial={{ y: 20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            transition={{ delay: 0.4 }}
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                                setNeedsResume(false);
+                                handleStartInterview();
+                            }}
+                            className="group relative px-8 sm:px-10 py-4 sm:py-5 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-2xl font-bold text-lg sm:text-xl shadow-2xl shadow-amber-500/30 flex items-center gap-3"
+                        >
+                            <Play fill="currentColor" size={24} />
+                            <span>Resume Interview</span>
+                        </motion.button>
+                        <motion.p
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 0.6 }}
+                            className="mt-4 sm:mt-6 text-zinc-500 text-xs sm:text-sm"
+                        >
+                            Click to continue where you left off
+                        </motion.p>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
-                {/* Status Indicator */}
-                <div className="mb-6">
+            {/* Main Content Area */}
+            <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8">
+                {/* Question Counter - Pill Style */}
+                <motion.div
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mb-4 sm:mb-6 px-3 sm:px-4 py-1.5 sm:py-2 bg-zinc-800/50 border border-zinc-700/50 rounded-full"
+                >
+                    <span className="text-zinc-400 text-xs sm:text-sm font-medium">
+                        Question <span className="text-white font-bold">{currentQIndex + 1}</span> of {questions.length}
+                    </span>
+                </motion.div>
+
+                {/* AI Avatar - Enhanced */}
+                <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 200, delay: 0.1 }}
+                    className="relative mb-6 sm:mb-8"
+                >
+                    <motion.div
+                        animate={isSpeaking ? { scale: [1, 1.05, 1] } : {}}
+                        transition={{ duration: 0.5, repeat: Infinity }}
+                        className={`w-16 h-16 sm:w-20 sm:h-20 lg:w-24 lg:h-24 rounded-2xl flex items-center justify-center shadow-2xl transition-all duration-300 ${isSpeaking
+                            ? 'bg-gradient-to-br from-blue-500 to-purple-600 shadow-blue-500/40'
+                            : 'bg-zinc-800/80 border border-zinc-700/50'
+                            }`}
+                    >
+                        {isSpeaking ? (
+                            <Volume2 className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
+                        ) : (
+                            <span className="text-2xl sm:text-3xl">🤖</span>
+                        )}
+                    </motion.div>
+                    {isSpeaking && (
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: [0.5, 0], scale: 1.3 }}
+                            transition={{ duration: 1, repeat: Infinity }}
+                            className="absolute -inset-2 rounded-2xl bg-blue-500/30"
+                        />
+                    )}
+                </motion.div>
+
+                {/* Question Text - Glassmorphic Card */}
+                <AnimatePresence mode="wait">
+                    <motion.div
+                        key={currentQIndex}
+                        initial={{ opacity: 0, x: 50 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -50 }}
+                        transition={{ duration: 0.3 }}
+                        className="max-w-2xl w-full mb-6 sm:mb-8 p-4 sm:p-6 bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/50 rounded-2xl"
+                    >
+                        <h2 className="text-sm sm:text-base md:text-lg lg:text-xl font-semibold text-white leading-relaxed text-center">
+                            {currentQuestion?.text}
+                        </h2>
+                    </motion.div>
+                </AnimatePresence>
+
+                {/* Status & Wave Visualization */}
+                <div className="mb-8 min-h-[80px] flex flex-col items-center justify-center">
                     {isSpeaking ? (
-                        <p className="text-primary-300 animate-pulse text-lg">🎤 AI is reading the question...</p>
-                    ) : isRecording ? (
                         <div className="flex items-center gap-3">
-                            <div className="px-4 py-2 bg-red-600 rounded-full flex items-center gap-2 shadow-lg">
-                                <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
-                                <span className="text-white font-mono font-bold">REC {formatTime(elapsedTime)}</span>
+                            <div className="flex items-center gap-1">
+                                {[...Array(5)].map((_, i) => (
+                                    <div
+                                        key={i}
+                                        className="w-1 bg-blue-400 rounded-full animate-pulse"
+                                        style={{
+                                            height: `${20 + Math.random() * 20}px`,
+                                            animationDelay: `${i * 0.1}s`,
+                                            animationDuration: '0.5s'
+                                        }}
+                                    />
+                                ))}
                             </div>
-                            <span className="text-xs text-gray-500">
-                                {useDeepgramSTT ? '🎯 Deepgram' : '🌐 Browser'}
-                            </span>
+                            <p className="text-blue-300 font-medium">AI is reading...</p>
+                        </div>
+                    ) : isRecording ? (
+                        <div className="flex flex-col items-center gap-4">
+                            <div className="flex items-center gap-1 h-12">
+                                {[...Array(12)].map((_, i) => {
+                                    const waveOffset = Math.sin((Date.now() / 200) + i * 0.5);
+                                    const baseHeight = 4;
+                                    const dynamicHeight = audioLevel > 10
+                                        ? baseHeight + (audioLevel * 0.4) + (waveOffset * audioLevel * 0.15)
+                                        : baseHeight;
+                                    return (
+                                        <div
+                                            key={i}
+                                            className={`w-1.5 rounded-full transition-all duration-75 ${audioLevel > 10
+                                                ? 'bg-gradient-to-t from-green-500 to-emerald-400'
+                                                : 'bg-zinc-600'
+                                                }`}
+                                            style={{ height: `${Math.max(4, dynamicHeight)}px` }}
+                                        />
+                                    );
+                                })}
+                            </div>
                         </div>
                     ) : isSubmitting ? (
-                        <div className="flex items-center gap-2 text-green-400 font-bold animate-pulse">
-                            <ArrowRight size={20} /> Processing...
-                        </div>
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="flex items-center gap-3 text-emerald-400 font-bold"
+                        >
+                            <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                            Processing your answer...
+                        </motion.div>
                     ) : null}
                 </div>
 
-                {/* Submit Button */}
-                {isRecording && (
-                    <button
-                        onClick={handleSubmit}
-                        disabled={isSubmitting}
-                        className="px-8 py-4 bg-green-600 hover:bg-green-500 disabled:bg-gray-600 text-white text-lg font-bold rounded-full shadow-xl transition-all hover:scale-105 flex items-center gap-2"
-                    >
-                        <CheckCircle size={24} />
-                        Submit Answer
-                    </button>
-                )}
+                {/* Submit Button - Enhanced */}
+                <AnimatePresence>
+                    {isRecording && (
+                        <motion.button
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 20 }}
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handleSubmit}
+                            disabled={isSubmitting}
+                            className="group px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 disabled:from-zinc-600 disabled:to-zinc-700 text-white text-base sm:text-lg font-bold rounded-2xl shadow-2xl shadow-emerald-500/30 flex items-center gap-2 sm:gap-3"
+                        >
+                            <CheckCircle size={20} className="sm:w-6 sm:h-6" />
+                            <span className="hidden sm:inline">Submit Answer</span>
+                            <span className="sm:hidden">Submit</span>
+                        </motion.button>
+                    )}
+                </AnimatePresence>
             </div>
 
-            {/* Right Side Panel - Live Transcript */}
+            {/* Right Side Panel - Live Transcript (Hidden on mobile) */}
             {hasStarted && (
-                <div className="relative z-10 w-80 lg:w-96 bg-dark-800/95 border-l border-gray-700 flex flex-col h-screen">
+                <motion.div
+                    initial={{ x: 100, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.3, type: 'spring', stiffness: 100 }}
+                    className="hidden md:flex relative z-10 w-72 lg:w-80 xl:w-96 bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-800/50 flex-col h-screen"
+                >
                     {/* Panel Header */}
-                    <div className="p-4 border-b border-gray-700 bg-dark-900/50">
-                        <div className="flex items-center gap-2">
-                            <Mic className="w-5 h-5 text-primary-400" />
-                            <h3 className="font-semibold text-white">Your Response</h3>
+                    <div className="p-5 border-b border-zinc-800/50 bg-gradient-to-r from-zinc-900 to-zinc-800/50">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                                <Mic className="w-5 h-5 text-blue-400" />
+                            </div>
+                            <div>
+                                <h3 className="font-semibold text-white">Your Response</h3>
+                                <p className="text-xs text-zinc-500">Live transcription</p>
+                            </div>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">Live transcription</p>
+                        {deepgramError && (
+                            <div className="mt-2 px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                <p className="text-xs text-red-400 font-medium flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse" />
+                                    {deepgramError}
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Transcript Content */}
-                    <div className="flex-1 overflow-y-auto p-4">
+                    <div className="flex-1 overflow-y-auto p-5">
                         {activeTranscript || activeInterim ? (
                             <div className="space-y-2">
-                                <p className="text-white leading-relaxed">
+                                <p className="text-white leading-relaxed text-lg">
                                     {activeTranscript}
-                                    <span className="text-gray-400 italic">{activeInterim}</span>
-                                    {isRecording && <span className="animate-pulse text-primary-400">|</span>}
+                                    <span className="text-zinc-500 italic">{activeInterim}</span>
+                                    {isRecording && <span className="inline-block w-0.5 h-5 bg-blue-400 ml-1 animate-pulse" />}
                                 </p>
                             </div>
                         ) : isRecording ? (
                             <div className="flex flex-col items-center justify-center h-full text-center">
-                                <div className="w-16 h-16 rounded-full bg-dark-700 flex items-center justify-center mb-4">
-                                    <Mic className="w-8 h-8 text-gray-500" />
+                                <div className="w-16 h-16 rounded-2xl bg-zinc-800/50 flex items-center justify-center mb-4">
+                                    <Mic className="w-8 h-8 text-zinc-600" />
                                 </div>
-                                <p className="text-gray-500 text-sm">Start speaking...</p>
-                                <p className="text-gray-600 text-xs mt-2">Your words will appear here</p>
+                                <p className="text-zinc-500">Start speaking...</p>
+                                <p className="text-zinc-600 text-sm mt-2">Your words will appear here</p>
                             </div>
                         ) : (
                             <div className="flex flex-col items-center justify-center h-full text-center">
-                                <p className="text-gray-500 text-sm">Waiting for recording...</p>
+                                <p className="text-zinc-600">Waiting for recording...</p>
                             </div>
                         )}
                     </div>
 
                     {/* Panel Footer - Stats */}
                     {activeTranscript && (
-                        <div className="p-4 border-t border-gray-700 bg-dark-900/50">
-                            <div className="grid grid-cols-2 gap-4 text-center">
-                                <div>
-                                    <p className="text-xs text-gray-500">Words</p>
-                                    <p className="text-lg font-bold text-white">
+                        <div className="p-5 border-t border-zinc-800/50 bg-gradient-to-r from-zinc-900 to-zinc-800/50">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="p-3 bg-zinc-800/30 rounded-xl text-center">
+                                    <p className="text-xs text-zinc-500 mb-1">Words</p>
+                                    <p className="text-xl font-bold text-white">
                                         {activeTranscript.split(/\s+/).filter(w => w).length}
                                     </p>
                                 </div>
-                                <div>
-                                    <p className="text-xs text-gray-500">Time</p>
-                                    <p className="text-lg font-bold text-white">{formatTime(elapsedTime)}</p>
+                                <div className="p-3 bg-zinc-800/30 rounded-xl text-center">
+                                    <p className="text-xs text-zinc-500 mb-1">Time</p>
+                                    <p className="text-xl font-bold text-white">{formatTime(elapsedTime)}</p>
                                 </div>
                             </div>
                         </div>
                     )}
-                </div>
+                </motion.div>
             )}
+
+            {/* CSS for wave animation */}
+            <style>{`
+                @keyframes wave {
+                    0%, 100% { transform: scaleY(0.5); }
+                    50% { transform: scaleY(1.2); }
+                }
+            `}</style>
         </div>
     );
 };

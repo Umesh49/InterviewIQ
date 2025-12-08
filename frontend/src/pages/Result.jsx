@@ -1,159 +1,22 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
-import { CheckCircle, AlertTriangle, BookOpen, Activity, Mic, FileText, Play, Video } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer } from 'recharts';
+import { CheckCircle, AlertTriangle, Mic, Trash2, Home, Brain, MessageSquare, Target, Award, ChevronLeft, ChevronRight, Zap, Volume2, Clock, Hash, ExternalLink, Play, BookOpen } from 'lucide-react';
 import { getInterviewResult } from '../services/api';
+import Loading from '../components/Loading';
 
-// Helper component for Question Review with Voice Metrics
-const QuestionReview = ({ response, index }) => {
-    // Extract voice metrics from body_language_metadata
-    const voiceMetrics = response.body_language_metadata?.voice_metrics || {};
-    const wpm = voiceMetrics.words_per_minute || 0;
-    const pauseCount = voiceMetrics.pause_count || 0;
-    const longestPause = voiceMetrics.longest_pause_seconds || 0;
-    const avgVolume = voiceMetrics.average_volume || 0;
-    const fillerWords = voiceMetrics.filler_words || {};
-    const wordCount = voiceMetrics.word_count || 0;
-    const speakingDuration = voiceMetrics.speaking_duration_seconds || 0;
-    const totalFillers = Object.values(fillerWords).reduce((a, b) => a + b, 0);
-
-    // Calculate performance indicators
-    const wpmStatus = wpm < 80 ? 'slow' : wpm > 160 ? 'fast' : 'good';
-    const volumeStatus = avgVolume < 0.3 ? 'quiet' : avgVolume > 0.8 ? 'loud' : 'good';
-    const fillerStatus = totalFillers > 5 ? 'high' : totalFillers > 2 ? 'moderate' : 'low';
-    const pauseStatus = pauseCount > 3 ? 'many' : 'acceptable';
-
-    // Use AI-generated detailed feedback if available, else fallback to calculated
-    const aiPositives = response.detailed_positives || [];
-    const aiImprovements = response.detailed_improvements || [];
-
-    // Fallback: Generate positives based on metrics (if AI didn't provide)
-    const fallbackPositives = [];
-    if (wpmStatus === 'good') fallbackPositives.push(`Your speaking pace of ${wpm} words/minute was excellent - conversational and easy to follow.`);
-    if (volumeStatus === 'good') fallbackPositives.push('Clear and audible voice - you projected well.');
-    if (fillerStatus === 'low') fallbackPositives.push('Minimal filler words - your delivery was polished and confident.');
-    if (pauseStatus === 'acceptable') fallbackPositives.push('Smooth flow without excessive pauses.');
-    if (wordCount > 50) fallbackPositives.push(`Detailed answer with ${wordCount} words - good depth and thoroughness!`);
-
-    // Fallback: Generate areas for improvement (if AI didn't provide)
-    const fallbackImprovements = [];
-    if (wpmStatus === 'fast') fallbackImprovements.push(`At ${wpm} words/minute, you spoke quickly. Try slowing down for clarity.`);
-    if (wpmStatus === 'slow') fallbackImprovements.push(`Your pace of ${wpm} words/minute was a bit slow. Speaking more naturally can convey confidence.`);
-    if (volumeStatus === 'quiet') fallbackImprovements.push('You spoke quietly. Project your voice more to sound confident.');
-    if (fillerStatus === 'high') fallbackImprovements.push(`You used ${totalFillers} filler words (${Object.keys(fillerWords).join(', ')}). Practice pausing instead.`);
-    if (pauseStatus === 'many') fallbackImprovements.push(`You had ${pauseCount} noticeable pauses. This might indicate nervousness.`);
-    if (wordCount < 20) fallbackImprovements.push(`Your answer was brief (${wordCount} words). Try elaborating with specific examples.`);
-
-    // Prefer AI feedback, fallback to calculated
-    const positives = aiPositives.length > 0 ? aiPositives : fallbackPositives;
-    const improvements = aiImprovements.length > 0 ? aiImprovements : fallbackImprovements;
-
-
-
-    const getStatusColor = (status) => {
-        if (status === 'good' || status === 'low' || status === 'acceptable') return 'text-green-400';
-        if (status === 'moderate' || status === 'slow' || status === 'fast') return 'text-yellow-400';
-        return 'text-red-400';
-    };
-
-    return (
-        <div className="glass-panel p-6 mb-8">
-            <h4 className="text-xl font-bold mb-6 flex items-center gap-2 pb-4 border-b border-white/10">
-                <span className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-sm">{index + 1}</span>
-                {response.question_text || "Question"}
-            </h4>
-
-            {/* Voice Metrics Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-dark-800 p-4 rounded-lg text-center">
-                    <p className="text-sm text-gray-400 mb-1">Speaking Pace</p>
-                    <p className={`text-2xl font-bold ${getStatusColor(wpmStatus)}`}>{wpm}</p>
-                    <p className="text-xs text-gray-500">words/min</p>
-                </div>
-                <div className="bg-dark-800 p-4 rounded-lg text-center">
-                    <p className="text-sm text-gray-400 mb-1">Pauses</p>
-                    <p className={`text-2xl font-bold ${getStatusColor(pauseStatus)}`}>{pauseCount}</p>
-                    <p className="text-xs text-gray-500">{longestPause > 0 ? `longest: ${longestPause}s` : 'none detected'}</p>
-                </div>
-                <div className="bg-dark-800 p-4 rounded-lg text-center">
-                    <p className="text-sm text-gray-400 mb-1">Filler Words</p>
-                    <p className={`text-2xl font-bold ${getStatusColor(fillerStatus)}`}>{totalFillers}</p>
-                    <p className="text-xs text-gray-500">{Object.keys(fillerWords).slice(0, 2).join(', ') || 'none'}</p>
-                </div>
-                <div className="bg-dark-800 p-4 rounded-lg text-center">
-                    <p className="text-sm text-gray-400 mb-1">Volume</p>
-                    <div className="flex items-center justify-center gap-1 my-1">
-                        {[1, 2, 3, 4, 5].map(i => (
-                            <div
-                                key={i}
-                                className={`w-2 h-4 rounded ${avgVolume * 5 >= i ? 'bg-green-500' : 'bg-gray-700'}`}
-                            />
-                        ))}
-                    </div>
-                    <p className={`text-xs ${getStatusColor(volumeStatus)}`}>{volumeStatus}</p>
-                </div>
-            </div>
-
-            {/* Positives & Improvements */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                {positives.length > 0 && (
-                    <div className="bg-green-900/20 border border-green-700/30 p-4 rounded-lg">
-                        <h5 className="text-green-400 font-semibold mb-2 flex items-center gap-2">
-                            <CheckCircle size={16} /> What you did well
-                        </h5>
-                        <ul className="text-sm space-y-1">
-                            {positives.map((p, i) => <li key={i} className="text-green-200">• {p}</li>)}
-                        </ul>
-                    </div>
-                )}
-                {improvements.length > 0 && (
-                    <div className="bg-yellow-900/20 border border-yellow-700/30 p-4 rounded-lg">
-                        <h5 className="text-yellow-400 font-semibold mb-2 flex items-center gap-2">
-                            <AlertTriangle size={16} /> Areas to improve
-                        </h5>
-                        <ul className="text-sm space-y-1">
-                            {improvements.map((p, i) => <li key={i} className="text-yellow-200">• {p}</li>)}
-                        </ul>
-                    </div>
-                )}
-            </div>
-
-            {/* Transcript */}
-            <div className="bg-dark-800 p-4 rounded-lg mb-4">
-                <h5 className="text-sm text-gray-400 mb-2">Your Answer ({wordCount} words, {speakingDuration}s)</h5>
-                <p className="text-gray-200 italic">"{response.transcript || 'No transcript available'}"</p>
-            </div>
-
-            {/* AI Feedback */}
-            {response.feedback_text && (
-                <div className="bg-primary-900/20 border border-primary-700/30 p-4 rounded-lg">
-                    <h5 className="text-primary-400 font-semibold mb-2">💡 AI Feedback</h5>
-                    <p className="text-sm text-gray-300">{response.feedback_text}</p>
-                </div>
-            )}
-
-            {/* Filler Words Breakdown (if any) */}
-            {totalFillers > 0 && (
-                <div className="mt-4 p-4 bg-dark-800 rounded-lg">
-                    <h5 className="text-sm text-gray-400 mb-2">Filler Words Breakdown</h5>
-                    <div className="flex flex-wrap gap-2">
-                        {Object.entries(fillerWords).map(([word, count]) => (
-                            <span key={word} className="px-3 py-1 bg-red-900/30 border border-red-700/50 rounded-full text-sm">
-                                "{word}" × {count}
-                            </span>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+// Animation variants
+const fadeIn = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4 } }
 };
-
 
 const Result = () => {
     const { sessionId } = useParams();
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [currentQuestion, setCurrentQuestion] = useState(0);
 
     useEffect(() => {
         const fetchResult = async () => {
@@ -169,148 +32,461 @@ const Result = () => {
         fetchResult();
     }, [sessionId]);
 
-    if (loading) return <div className="min-h-screen flex items-center justify-center animate-pulse">Loading Analysis...</div>;
-    if (!result) return <div className="min-h-screen flex items-center justify-center">Failed to load result.</div>;
+    if (loading) {
+        return <Loading />;
+    }
+
+    if (!result) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+                <AlertTriangle size={48} className="text-red-400" />
+                <p className="text-gray-400">Failed to load result.</p>
+                <Link to="/dashboard" className="btn-primary">Back to Dashboard</Link>
+            </div>
+        );
+    }
 
     const handleDelete = async () => {
-        if (window.confirm("Are you sure? This will permanently delete your interview data, including audio and transcripts. This action cannot be undone.")) {
+        if (window.confirm("Delete this interview session?")) {
             try {
                 const { deleteSession } = await import('../services/api');
                 await deleteSession(sessionId);
-                alert("Session deleted.");
-                window.location.href = '/';
+                window.location.href = '/dashboard';
             } catch (e) {
-                console.error(e);
-                alert("Failed to delete session.");
+                alert("Failed to delete.");
             }
         }
     };
 
+    const overallScore = Math.round(result.overall_score || 0);
+    const responses = result.responses || [];
+    const currentResp = responses[currentQuestion];
+
     return (
-        <div className="min-h-screen p-8 max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-12">
+        <div className="min-h-screen px-6 py-8 max-w-6xl mx-auto">
+            {/* Header */}
+            <div className="flex justify-between items-start mb-8">
                 <div>
-                    <h1 className="text-4xl font-bold mb-2">Interview Analysis</h1>
-                    <p className="text-gray-400">Session ID: {sessionId}</p>
+                    <h1 className="text-2xl font-bold mb-1">Interview Results</h1>
+                    <p className="text-gray-500 text-sm">{result.position || 'Interview Session'}</p>
                 </div>
-                <button
-                    onClick={handleDelete}
-                    className="px-4 py-2 bg-red-900/50 border border-red-500 text-red-400 rounded-lg hover:bg-red-900 transition-colors flex items-center gap-2"
-                >
-                    <AlertTriangle size={16} /> Delete Data
-                </button>
+                <div className="flex gap-2">
+                    <Link to="/dashboard" className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm flex items-center gap-2 transition-colors">
+                        <Home size={16} /> Dashboard
+                    </Link>
+                    <button onClick={handleDelete} className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-sm flex items-center gap-2 transition-colors">
+                        <Trash2 size={16} /> Delete
+                    </button>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+            {/* Score Overview - Compact */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
                 {/* Overall Score */}
-                <div className="glass-panel p-8 flex flex-col items-center justify-center">
-                    <div className="w-40 h-40 rounded-full border-8 border-primary-500 flex items-center justify-center mb-4 relative">
-                        <span className="text-5xl font-bold">{Math.round(result.overall_score || 0)}%</span>
-                        <div className="absolute inset-0 border-8 border-t-transparent border-primary-400/30 rounded-full animate-spin-slow" />
+                <motion.div
+                    initial="hidden" animate="visible" variants={fadeIn}
+                    className="bg-white/[0.03] border border-white/10 rounded-xl p-6 flex items-center gap-6"
+                >
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl font-bold ${overallScore >= 70 ? 'bg-green-500/20 text-green-400' :
+                        overallScore >= 50 ? 'bg-amber-500/20 text-amber-400' :
+                            'bg-red-500/20 text-red-400'
+                        }`}>
+                        {overallScore}%
                     </div>
-                    <h3 className="text-xl font-semibold">Overall Match</h3>
-                </div>
+                    <div>
+                        <p className="text-gray-400 text-sm">Overall Score</p>
+                        <p className="text-lg font-semibold">
+                            {overallScore >= 70 ? 'Great job!' : overallScore >= 50 ? 'Good effort' : 'Keep practicing'}
+                        </p>
+                    </div>
+                </motion.div>
 
                 {/* Radar Chart */}
-                <div className="glass-panel p-4 col-span-2 h-80">
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                        <RadarChart cx="50%" cy="50%" outerRadius="80%" data={result.category_scores || []}>
-                            <PolarGrid stroke="#4b5563" />
-                            <PolarAngleAxis dataKey="name" tick={{ fill: '#9ca3af' }} />
+                <motion.div
+                    initial="hidden" animate="visible" variants={fadeIn}
+                    className="lg:col-span-2 bg-white/[0.03] border border-white/10 rounded-xl p-4"
+                >
+                    <ResponsiveContainer width="100%" height={180}>
+                        <RadarChart cx="50%" cy="50%" outerRadius="70%" data={result.category_scores || []}>
+                            <PolarGrid stroke="rgba(255,255,255,0.1)" />
+                            <PolarAngleAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 11 }} />
                             <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} />
-                            <Radar name="Student" dataKey="score" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.6} />
-                            <Tooltip contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151' }} />
+                            <Radar dataKey="score" stroke="#06b6d4" fill="#06b6d4" fillOpacity={0.3} />
                         </RadarChart>
                     </ResponsiveContainer>
-                </div>
+                </motion.div>
             </div>
 
-            {/* QUESTION BY QUESTION ANALYSIS */}
-            <div className="mb-12">
-                <h3 className="text-2xl font-bold mb-6 border-b border-white/10 pb-4 flex items-center gap-2">
-                    <Mic className="text-primary-400" /> Question by Question Analysis
-                </h3>
-                {result.responses && result.responses.length > 0 ? (
-                    result.responses.map((resp, i) => (
-                        <QuestionReview key={resp.id || i} response={resp} index={i} />
-                    ))
-                ) : (
-                    <p className="text-gray-400">No responses recorded.</p>
+            {/* Question Navigation */}
+            {responses.length > 0 && (
+                <div className="mb-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-semibold flex items-center gap-2">
+                            <Mic className="text-primary-400" size={20} />
+                            Question Analysis
+                        </h2>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setCurrentQuestion(Math.max(0, currentQuestion - 1))}
+                                disabled={currentQuestion === 0}
+                                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            >
+                                <ChevronLeft size={18} />
+                            </button>
+                            <span className="text-sm text-gray-400 min-w-[80px] text-center">
+                                {currentQuestion + 1} of {responses.length}
+                            </span>
+                            <button
+                                onClick={() => setCurrentQuestion(Math.min(responses.length - 1, currentQuestion + 1))}
+                                disabled={currentQuestion === responses.length - 1}
+                                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            >
+                                <ChevronRight size={18} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Quick Jump Pills */}
+                    <div className="flex flex-wrap gap-2 mb-6">
+                        {responses.map((_, idx) => (
+                            <button
+                                key={idx}
+                                onClick={() => setCurrentQuestion(idx)}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${idx === currentQuestion
+                                    ? 'bg-primary-500 text-white'
+                                    : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                                    }`}
+                            >
+                                Q{idx + 1}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Current Question Card */}
+                    {currentResp && (
+                        <motion.div
+                            key={currentQuestion}
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ duration: 0.3 }}
+                            className="bg-white/[0.03] border border-white/10 rounded-xl overflow-hidden"
+                        >
+                            {/* Question Header */}
+                            <div className="p-5 border-b border-white/10 bg-white/[0.02]">
+                                <p className="text-white font-medium">{currentResp.question_text || 'Question'}</p>
+                            </div>
+
+                            {/* Metrics Row */}
+                            <div className="grid grid-cols-4 divide-x divide-white/10 border-b border-white/10">
+                                <MetricItem
+                                    icon={Zap}
+                                    label="Pace"
+                                    value={`${currentResp.body_language_metadata?.voice_metrics?.words_per_minute || 0} wpm`}
+                                    status={getWpmStatus(currentResp.body_language_metadata?.voice_metrics?.words_per_minute)}
+                                />
+                                <MetricItem
+                                    icon={Clock}
+                                    label="Pauses"
+                                    value={currentResp.body_language_metadata?.voice_metrics?.pause_count || 0}
+                                />
+                                <MetricItem
+                                    icon={Hash}
+                                    label="Words"
+                                    value={currentResp.body_language_metadata?.voice_metrics?.word_count || 0}
+                                />
+                                <MetricItem
+                                    icon={Volume2}
+                                    label="Volume"
+                                    value={getVolumeLabel(currentResp.body_language_metadata?.voice_metrics?.average_volume)}
+                                    status={getVolumeStatus(currentResp.body_language_metadata?.voice_metrics?.average_volume)}
+                                />
+                            </div>
+
+                            {/* AI Feedback - Properly Formatted */}
+                            <div className="p-5">
+                                <AIFeedbackDisplay response={currentResp} />
+                            </div>
+
+                            {/* Transcript */}
+                            <div className="px-5 pb-5">
+                                <div className="bg-zinc-900/50 rounded-lg p-4">
+                                    <p className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                                        <MessageSquare size={12} /> Your Answer
+                                    </p>
+                                    <p className="text-gray-300 text-sm italic">
+                                        "{currentResp.transcript || 'No transcript'}"
+                                    </p>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                </div>
+            )}
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                {/* Strengths */}
+                {result.strengths?.length > 0 && (
+                    <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-5">
+                        <h3 className="font-semibold mb-4 flex items-center gap-2 text-green-400">
+                            <Award size={18} /> Strengths
+                        </h3>
+                        <ul className="space-y-2">
+                            {result.strengths.map((s, i) => (
+                                <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                                    <CheckCircle size={14} className="text-green-400 mt-0.5 shrink-0" />
+                                    {s}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
+                {/* Areas to Improve */}
+                {result.areas_for_improvement?.length > 0 && (
+                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-5">
+                        <h3 className="font-semibold mb-4 flex items-center gap-2 text-amber-400">
+                            <Target size={18} /> Areas to Improve
+                        </h3>
+                        <ul className="space-y-2">
+                            {result.areas_for_improvement.map((s, i) => (
+                                <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                                    <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
+                                    {s}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
                 )}
             </div>
 
-            {/* Detailed Breakdown */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
-                <div className="glass-panel p-6">
-                    <h4 className="text-lg font-bold mb-4 flex items-center gap-2"><FileText className="text-blue-400" /> Grammar & Language</h4>
-                    <p className="text-3xl font-bold mb-2">{result.detailed_breakdown?.grammar?.score || 0}/100</p>
-                    <ul className="text-sm text-gray-400 list-disc pl-4 space-y-1">
-                        {result.detailed_breakdown?.grammar?.issues?.map((issue, i) => <li key={i}>{issue}</li>)}
-                    </ul>
-                </div>
-                <div className="glass-panel p-6">
-                    <h4 className="text-lg font-bold mb-4 flex items-center gap-2"><Activity className="text-green-400" /> Body Language</h4>
-                    <p className="text-3xl font-bold mb-2">{result.detailed_breakdown?.body_language?.score || 0}/100</p>
-                    <p className="text-sm text-gray-400">Eye Contact: {result.detailed_breakdown?.body_language?.eye_contact_avg}</p>
-                    <p className="text-sm text-gray-400">Posture Alerts: {result.detailed_breakdown?.body_language?.posture_alerts}</p>
-                    <p className="text-sm text-gray-400">Fidget Score: {result.detailed_breakdown?.body_language?.fidget_score}</p>
-                </div>
-                <div className="glass-panel p-6">
-                    <h4 className="text-lg font-bold mb-4 flex items-center gap-2"><Mic className="text-purple-400" /> Content Quality</h4>
-                    <p className="text-3xl font-bold mb-2">{result.detailed_breakdown?.content?.score || 0}/100</p>
-                    <p className="text-sm text-gray-400">STAR Method: {result.detailed_breakdown?.content?.star_method_usage}</p>
-                </div>
-
-                {/* Cognitive Load Analysis */}
-                <div className="glass-panel p-6 col-span-1 lg:col-span-3 bg-red-900/20 border border-red-500/30">
-                    <h4 className="text-lg font-bold mb-4 flex items-center gap-2 text-red-400">🧠 Stress & Cognitive Load Analysis</h4>
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <p className="text-2xl font-bold">{result.detailed_breakdown?.stress_analysis?.level || 'N/A'} Stress Detected</p>
-                            <p className="text-gray-400">{result.detailed_breakdown?.stress_analysis?.insight || 'Analysis pending...'}</p>
-                        </div>
-                        <div className="text-4xl font-bold text-red-500">{result.detailed_breakdown?.stress_analysis?.score || 0}/100</div>
+            {/* Learning Path */}
+            {result.learning_path?.length > 0 && (
+                <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5">
+                    <h3 className="font-semibold mb-4 flex items-center gap-2">
+                        <BookOpen size={18} className="text-accent-400" /> Recommended Learning
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {result.learning_path.map((item, i) => (
+                            <a
+                                key={i}
+                                href={item.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block p-4 bg-white/[0.02] rounded-lg hover:bg-white/[0.04] transition-colors cursor-pointer group"
+                            >
+                                <div className="flex justify-between items-start">
+                                    <p className="font-medium text-sm text-white group-hover:text-blue-400 transition-colors">{item.title}</p>
+                                    <ExternalLink size={14} className="text-gray-600 group-hover:text-blue-400 transition-colors" />
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">{item.type} • {item.duration}</p>
+                            </a>
+                        ))}
                     </div>
                 </div>
+            )}
+        </div>
+    );
+};
+
+// Helper components
+const MetricItem = ({ icon: Icon, label, value, status }) => (
+    <div className="p-4 text-center">
+        <Icon size={16} className="mx-auto mb-1 text-gray-500" />
+        <p className={`text-lg font-semibold ${status === 'good' ? 'text-green-400' :
+            status === 'warning' ? 'text-amber-400' :
+                status === 'bad' ? 'text-red-400' : 'text-white'
+            }`}>{value}</p>
+        <p className="text-xs text-gray-500">{label}</p>
+    </div>
+);
+
+const AIFeedbackDisplay = ({ response }) => {
+    const {
+        strengths: newStrengths,
+        weaknesses: newWeaknesses,
+        detailed_positives,
+        detailed_improvements,
+        feedback_text,
+        correctness_feedback,
+        is_answer_correct,
+        improvement_tips,
+        grammar_errors
+    } = response;
+
+    // Parse structured feedback
+    let strengths = newStrengths || detailed_positives || [];
+    let areas = newWeaknesses || detailed_improvements || [];
+    const feedbackText = feedback_text || '';
+
+    if (feedbackText && feedbackText.includes('Strengths:')) {
+        const parts = feedbackText.split('**Areas to improve:**');
+        if (parts[0]) {
+            const strengthsPart = parts[0].replace('**Strengths:**', '').trim();
+            strengths = strengthsPart.split(';').map(s => s.trim()).filter(s => s);
+        }
+        if (parts[1]) {
+            areas = parts[1].split(';').map(s => s.trim()).filter(s => s);
+        }
+    }
+
+    // Fallback to generated feedback from voice metrics
+    const vm = response.body_language_metadata?.voice_metrics || {};
+    if (strengths.length === 0) {
+        if (vm.words_per_minute >= 100 && vm.words_per_minute <= 150) strengths.push('Good speaking pace');
+        if ((vm.filler_words || {}) && Object.keys(vm.filler_words).length === 0) strengths.push('No filler words detected');
+        if (vm.pause_count <= 2) strengths.push('Smooth delivery with minimal pauses');
+    }
+    if (areas.length === 0) {
+        if (vm.words_per_minute < 80) areas.push(`Slow pace (${vm.words_per_minute} wpm) - aim for 120-140 wpm`);
+        if (vm.words_per_minute > 160) areas.push(`Fast pace (${vm.words_per_minute} wpm) - slow down for clarity`);
+        if (vm.word_count < 20) areas.push(`Brief response (${vm.word_count} words) - add more detail`);
+        if (vm.average_volume < 0.3) areas.push('Quiet voice - project more confidently');
+    }
+
+    if (strengths.length === 0 && areas.length === 0 && !feedbackText) {
+        return <p className="text-gray-500 text-sm">No AI feedback available</p>;
+    }
+
+    return (
+        <div className="space-y-4">
+            <h4 className="text-sm font-medium flex items-center gap-2 text-primary-400">
+                <Brain size={16} /> AI Analysis
+            </h4>
+
+            {/* technical correctness */}
+            {correctness_feedback && (
+                <div className={`border rounded-lg p-4 ${is_answer_correct === false
+                    ? 'bg-red-500/5 border-red-500/10'
+                    : 'bg-blue-500/5 border-blue-500/10'}`}>
+                    <h4 className={`text-sm font-medium flex items-center gap-2 mb-2 ${is_answer_correct === false ? 'text-red-400' : 'text-blue-400'}`}>
+                        {is_answer_correct === false ? <AlertTriangle size={16} /> : <CheckCircle size={16} />}
+                        Technical Feedback
+                    </h4>
+                    <p className="text-sm text-gray-300">{correctness_feedback}</p>
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Strengths */}
+                {strengths.length > 0 && (
+                    <div className="bg-green-500/5 border border-green-500/10 rounded-lg p-4">
+                        <p className="text-xs font-medium text-green-400 mb-2 uppercase tracking-wide">What You Did Well</p>
+                        <ul className="space-y-1.5">
+                            {strengths.map((s, i) => (
+                                <li key={i} className="text-sm text-gray-300 flex items-start gap-2">
+                                    <CheckCircle size={12} className="text-green-400 mt-1 shrink-0" />
+                                    {s}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
+                {/* Areas to Improve */}
+                {areas.length > 0 && (
+                    <div className="bg-amber-500/5 border border-amber-500/10 rounded-lg p-4">
+                        <p className="text-xs font-medium text-amber-400 mb-2 uppercase tracking-wide">To Improve</p>
+                        <ul className="space-y-1.5">
+                            {areas.map((s, i) => (
+                                <li key={i} className="text-sm text-gray-300 flex items-start gap-2">
+                                    <AlertTriangle size={12} className="text-amber-400 mt-1 shrink-0" />
+                                    {s}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Detailed Feedback */}
-                <div className="glass-panel p-8">
-                    <h3 className="text-2xl font-bold mb-6">Strengths & Improvements</h3>
-                    <div className="space-y-6">
-                        {result.strengths?.map((text, i) => (
-                            <div key={i} className="flex gap-4 items-start">
-                                <CheckCircle className="text-green-500 shrink-0" />
-                                <p className="text-lg">{text}</p>
-                            </div>
-                        ))}
-                        {result.areas_for_improvement?.map((text, i) => (
-                            <div key={i} className="flex gap-4 items-start">
-                                <AlertTriangle className="text-yellow-500 shrink-0" />
-                                <p className="text-lg">{text}</p>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Learning Path */}
-                <div className="glass-panel p-8">
-                    <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
-                        <BookOpen className="text-purple-400" /> Recommended Learning
-                    </h3>
-                    <ul className="space-y-4">
-                        {result.learning_path?.map((item, i) => (
-                            <li key={i} className="p-4 bg-dark-800 rounded-lg hover:bg-dark-700 transition-colors cursor-pointer">
-                                <h4 className="font-semibold text-primary-400">{item.title}</h4>
-                                <p className="text-sm text-gray-400">{item.type} • {item.duration}</p>
+            {/* Improvement Tips */}
+            {improvement_tips && improvement_tips.length > 0 && (
+                <div className="bg-purple-500/5 border border-purple-500/10 rounded-lg p-4">
+                    <p className="text-xs font-medium text-purple-400 mb-2 uppercase tracking-wide flex items-center gap-2">
+                        <Zap size={12} /> Pro Tips
+                    </p>
+                    <ul className="space-y-1.5">
+                        {improvement_tips.map((tip, i) => (
+                            <li key={i} className="text-sm text-gray-300 flex items-start gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-1.5 shrink-0" />
+                                {tip}
                             </li>
                         ))}
                     </ul>
                 </div>
-            </div>
+            )}
+
+            {/* Grammar Issues */}
+            {grammar_errors && grammar_errors.length > 0 && (
+                <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-4">
+                    <p className="text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wide">Grammar Notes</p>
+                    <ul className="space-y-1.5">
+                        {grammar_errors.map((err, i) => (
+                            <li key={i} className="text-sm text-zinc-400 flex items-start gap-2">
+                                <span className="text-zinc-500">•</span>
+                                {err}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
+            {/* Recommended Resources */}
+            {response.recommended_resources && response.recommended_resources.length > 0 && (
+                <div className="bg-blue-500/5 border border-blue-500/10 rounded-lg p-4 mt-4">
+                    <p className="text-xs font-medium text-blue-400 mb-2 uppercase tracking-wide flex items-center gap-2">
+                        <Play size={12} /> Recommended Learning
+                    </p>
+                    <div className="space-y-2">
+                        {response.recommended_resources.map((res, i) => (
+                            <a
+                                key={i}
+                                href={res.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block p-3 bg-white/5 hover:bg-white/10 rounded-lg transition-all group border border-white/5 hover:border-blue-500/30"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm text-gray-200 font-medium group-hover:text-blue-300 transition-colors">
+                                        {res.title}
+                                    </p>
+                                    <ExternalLink size={14} className="text-gray-600 group-hover:text-blue-400 transition-colors opacity-0 group-hover:opacity-100" />
+                                </div>
+                                {res.topic && (
+                                    <p className="text-xs text-gray-500 mt-1 group-hover:text-gray-400">
+                                        Focus: {res.topic}
+                                    </p>
+                                )}
+                            </a>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
+};
+
+// Utility functions
+const getWpmStatus = (wpm) => {
+    if (!wpm) return 'neutral';
+    if (wpm >= 100 && wpm <= 150) return 'good';
+    if (wpm < 80 || wpm > 170) return 'bad';
+    return 'warning';
+};
+
+const getVolumeStatus = (vol) => {
+    if (!vol) return 'neutral';
+    if (vol >= 0.4 && vol <= 0.8) return 'good';
+    if (vol < 0.3) return 'bad';
+    return 'warning';
+};
+
+const getVolumeLabel = (vol) => {
+    if (!vol) return 'N/A';
+    if (vol >= 0.6) return 'Strong';
+    if (vol >= 0.4) return 'Good';
+    if (vol >= 0.3) return 'Soft';
+    return 'Quiet';
 };
 
 export default Result;

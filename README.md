@@ -1,4 +1,4 @@
-# 🎯 AI Interview Coach
+# 🎯 InterviewIQ - AI Interview Coach
 
 An intelligent, AI-powered mock interview platform designed to help job seekers practice and improve their interview skills through realistic simulations, real-time feedback, and comprehensive performance analytics.
 
@@ -6,17 +6,34 @@ An intelligent, AI-powered mock interview platform designed to help job seekers 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Django](https://img.shields.io/badge/django-4.2-green)
 ![React](https://img.shields.io/badge/react-19-61dafb)
+![Vite](https://img.shields.io/badge/vite-5-646CFF)
+![TailwindCSS](https://img.shields.io/badge/tailwindcss-4-06B6D4)
+
+---
+
+## 🌟 What Makes This Special
+
+- **No Login Required** - Start practicing immediately without account creation
+- **Real-Time Voice Analysis** - Deepgram-powered speech-to-text with Indian English support
+- **Body Language Tracking** - MediaPipe-powered eye contact and posture monitoring
+- **Multi-AI Provider System** - Automatic failover across Groq, Cerebras, Gemini, and OpenRouter
+- **Responsive Design** - Works seamlessly on desktop, tablet, and mobile
+- **Session Persistence** - Resume interrupted interviews from where you left off
+
+---
 
 ## ✨ Features
 
-### 🎤 Realistic Interview Simulation
-- **AI-Generated Questions**: Dynamic, position-specific questions tailored to your resume and experience level
-- **Progressive Difficulty**: Questions start easy and gradually increase in difficulty to build confidence
-- **Multiple Categories**: Mix of Technical, Behavioral, and Situational questions
-- **Follow-up Questions**: AI generates contextual follow-ups based on your previous answers
+### 🎤 AI-Powered Mock Interviews
+- **Smart Question Generation**: Dynamic, position-specific questions tailored to your resume
+- **Progressive Difficulty**: Questions adapt based on experience level (0-2, 3-5, 5-10, 10+ years)
+- **Multiple Categories**: Technical, Behavioral, HR, and Situational questions
+- **Follow-up Questions**: Contextual follow-ups based on your previous answers
+- **Session Persistence**: Refresh-safe interviews with automatic progress restoration
 
 ### 🗣️ Real-Time Voice Analysis
-- **Speech-to-Text**: Real-time transcription using Deepgram API
+- **Deepgram Speech-to-Text**: Real-time transcription with Indian English (`en-IN`) support
+- **Reactive Audio Visualization**: Wave animation responds to actual voice input
 - **Fluency Metrics**: Tracks filler words, pauses, speech pace, and vocabulary diversity
 - **Grammar Checking**: Identifies grammatical errors with suggestions using LanguageTool
 - **STAR Method Detection**: Analyzes if responses follow the Situation-Task-Action-Result structure
@@ -24,27 +41,49 @@ An intelligent, AI-powered mock interview platform designed to help job seekers 
 ### 📹 Body Language Tracking
 - **Eye Contact Monitoring**: Tracks gaze patterns using MediaPipe Holistic
 - **Posture Analysis**: Evaluates body posture throughout the interview
-- **Gesture Detection**: Identifies excessive fidgeting or nervous movements
 - **Real-time Feedback**: Visual indicators during the interview
 
-### 🤖 Multi-Provider AI System
-- **Groq** (Primary - Fast inference, free tier)
-- **Cerebras** (Secondary - 14,400 req/day)
-- **Google Gemini** (Fallback with dual API key support)
-- **OpenRouter** (Access to multiple open-source models)
-- **Automatic Failover**: Seamless switching between providers
+### 🎨 Modern UI/UX
+- **Framer Motion Animations**: Smooth entrance/exit animations throughout
+- **Glassmorphic Design**: Modern card styles with backdrop blur
+- **Dark Mode First**: Professional zinc-based dark theme
+- **Responsive Layout**: Optimized for all screen sizes
+- **Live Transcript Panel**: Real-time display of your spoken responses
 
 ### 📊 Comprehensive Analytics
-- **Overall Performance Score**: Weighted combination of all metrics
-- **Category Breakdown**: Separate scores for Communication, Content Quality, and Confidence
+- **Performance Dashboard**: Track your progress over time
+- **Category Breakdown**: Scores for Communication, Content Quality, and Confidence
 - **Detailed Feedback**: AI-generated insights with specific improvement suggestions
-- **Progress Tracking**: Historical performance trends via dashboard
+- **Historical Trends**: View performance trends across all sessions
 
-### 🎓 Beginner-Friendly Features
-- **Pre-Interview Tips**: Anxiety-reducing preparation guide
-- **Question Hints**: Clarification available without revealing answers
-- **Encouraging Feedback**: Positive reinforcement throughout the interview
-- **Actionable Improvement Tips**: Specific, practical advice for each response
+### 📄 ATS Scanner
+- **Resume Analysis**: Check how well your resume matches job descriptions
+- **Keyword Matching**: Identify matching and missing keywords
+- **Score Calculation**: Get an ATS compatibility score (0-100)
+- **Actionable Suggestions**: Specific tips to improve your resume
+
+### 🎓 Learning Resources
+- **Interview Guides**: Comprehensive tips for different interview stages
+- **Answer Templates**: Fill-in-the-blank templates for common questions (STAR method)
+- **Company Prep**: Company-specific interview preparation and common questions
+- **Quick Practice**: 3-question drill sessions for rapid skill building
+
+### 🔒 Privacy Controls
+- **Data Transparency**: Clear information about what data is stored
+- **Hard Delete**: Permanently delete all your data (resumes, interviews, responses)
+- **No Login Required**: Use the app without creating an account
+
+### 🤖 Multi-Provider AI System
+| Provider | Purpose | Rate Limit |
+|----------|---------|------------|
+| Groq | Primary - Fast inference | Free tier |
+| Cerebras | Secondary | 14,400 req/day |
+| Google Gemini | Fallback (dual API key support) | Varies |
+| OpenRouter | Access to multiple open-source models | Varies |
+
+**Automatic Failover**: Seamless switching between providers when one fails.
+
+---
 
 ## 🏗️ Tech Stack
 
@@ -53,8 +92,8 @@ An intelligent, AI-powered mock interview platform designed to help job seekers 
 |------------|---------|
 | Django 4.2 | Web framework |
 | Django REST Framework | API development |
-| PostgreSQL/SQLite | Database |
-| Google Generative AI | Question generation & analysis |
+| SQLite/PostgreSQL | Database |
+| Groq/Gemini/Cerebras | AI question generation & analysis |
 | LanguageTool | Grammar checking |
 | PDFMiner | Resume parsing |
 
@@ -62,13 +101,16 @@ An intelligent, AI-powered mock interview platform designed to help job seekers 
 | Technology | Purpose |
 |------------|---------|
 | React 19 | UI framework |
-| Vite | Build tool |
+| Vite 5 | Build tool |
 | TailwindCSS 4 | Styling |
-| Axios | HTTP client |
+| Framer Motion | Animations |
+| GSAP | Advanced animations |
 | Recharts | Data visualization |
 | MediaPipe Holistic | Body language tracking |
-| Deepgram SDK | Speech-to-text |
+| Deepgram SDK | Speech-to-text & text-to-speech |
 | Lucide React | Icons |
+
+---
 
 ## 📁 Project Structure
 
@@ -85,183 +127,181 @@ fair_ai_interview_app/
 │   │   ├── services.py      # Business logic & AI integration
 │   │   ├── serializers.py   # Data serialization
 │   │   └── urls.py          # API routes
-│   ├── media/               # Uploaded files (resumes, recordings)
+│   ├── media/               # Uploaded files (resumes)
 │   ├── requirements.txt     # Python dependencies
 │   └── manage.py            # Django CLI
 │
 ├── frontend/
+│   ├── public/              # Static assets (logo)
 │   ├── src/
 │   │   ├── components/      # Reusable UI components
+│   │   │   ├── Header.jsx         # Navigation with Features dropdown
+│   │   │   ├── Footer.jsx         # Footer with quick links
+│   │   │   ├── Loading.jsx        # Animated loading component
+│   │   │   ├── IconSelect.jsx     # Custom dropdown with icons
+│   │   │   └── AnimatedBackground.jsx
 │   │   ├── pages/           # Main application pages
 │   │   │   ├── Home.jsx           # Landing page
+│   │   │   ├── Dashboard.jsx      # Main dashboard (2x2 grid on mobile)
 │   │   │   ├── InterviewSetup.jsx # Interview configuration
-│   │   │   ├── Interview.jsx      # Main interview interface
+│   │   │   ├── Interview.jsx      # Main interview (animated)
 │   │   │   ├── Result.jsx         # Performance results
-│   │   │   └── Dashboard.jsx      # Historical analytics
-│   │   ├── App.jsx          # Root component with routing
-│   │   └── index.css        # Global styles
-│   ├── public/              # Static assets
-│   ├── package.json         # Node dependencies
-│   └── vite.config.js       # Vite configuration
-│
-└── README.md
+│   │   │   ├── Analytics.jsx      # Detailed analytics
+│   │   │   ├── ATSScanner.jsx     # Resume ATS checker
+│   │   │   └── ...more
+│   │   ├── hooks/           # Custom React hooks
+│   │   │   ├── useDeepgram.js     # Deepgram STT integration
+│   │   │   └── useMediaPipe.js    # Body language tracking
+│   │   └── services/        # API integration
+│   ├── index.html           # Entry HTML
+│   └── package.json         # npm dependencies
 ```
+
+---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 - Python 3.10+
 - Node.js 18+
-- PostgreSQL (optional, SQLite works for development)
+- npm or yarn
 
 ### Backend Setup
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Umesh49/ai-interview.git
-   cd ai-interview
-   ```
+```bash
+# Navigate to project root
+cd fair_ai_interview_app
 
-2. **Create virtual environment**
-   ```bash
-   cd backend
-   python -m venv .venv
-   
-   # Windows
-   .venv\Scripts\activate
-   
-   # macOS/Linux
-   source .venv/bin/activate
-   ```
+# Create virtual environment
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+source .venv/bin/activate  # Mac/Linux
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+# Install dependencies
+pip install -r backend/requirements.txt
 
-4. **Configure environment variables**
-   
-   Create a `.env` file in the `backend/` directory:
-   ```env
-   # Required
-   GEMINI_API_KEY=your_gemini_api_key
-   SECRET_KEY=your_django_secret_key
-   
-   # Optional (enables additional AI providers)
-   GROQ_API_KEY=your_groq_api_key
-   CEREBRAS_API_KEY=your_cerebras_api_key
-   OPENROUTER_API_KEY=your_openrouter_api_key
-   
-   # Development
-   DEBUG=True
-   ```
+# Create .env file in project root
+GROQ_API_KEY=your_key
+GEMINI_API_KEY=your_key
+DEEPGRAM_API_KEY=your_key
+CEREBRAS_API_KEY=your_key  # Optional
+OPENROUTER_API_KEY=your_key  # Optional
 
-5. **Run migrations**
-   ```bash
-   python manage.py migrate
-   ```
+# Run migrations
+python backend/manage.py migrate
 
-6. **Start the server**
-   ```bash
-   python manage.py runserver
-   ```
-   Backend will be available at `http://localhost:8000`
+# Start server
+python backend/manage.py runserver
+```
 
 ### Frontend Setup
 
-1. **Navigate to frontend directory**
-   ```bash
-   cd frontend
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment variables**
-   
-   Create a `.env` file in the `frontend/` directory:
-   ```env
-   VITE_DEEPGRAM_API_KEY=your_deepgram_api_key
-   ```
-
-4. **Start development server**
-   ```bash
-   npm run dev
-   ```
-   Frontend will be available at `http://localhost:5173`
-
-## 📖 API Documentation
-
-### Core Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/resumes/` | Upload and parse resume |
-| `POST` | `/api/sessions/` | Create interview session |
-| `POST` | `/api/sessions/{id}/pre_interview_tips/` | Get preparation tips |
-| `POST` | `/api/sessions/{id}/start_interview/` | Generate questions & start |
-| `POST` | `/api/sessions/{id}/submit_response/` | Submit answer with metrics |
-| `POST` | `/api/sessions/{id}/clarify_question/` | Get hint for question |
-| `GET` | `/api/sessions/{id}/get_result/` | Get comprehensive report |
-| `GET` | `/api/sessions/history/` | Get session history |
-| `GET` | `/api/sessions/progress_data/` | Get progress analytics |
-
-### Interview Flow
-
-```
-1. Upload Resume (optional) → POST /api/resumes/
-2. Create Session → POST /api/sessions/
-3. Get Tips → POST /api/sessions/{id}/pre_interview_tips/
-4. Start Interview → POST /api/sessions/{id}/start_interview/
-5. For each question:
-   └── Submit Response → POST /api/sessions/{id}/submit_response/
-6. Get Results → GET /api/sessions/{id}/get_result/
-```
-
-## 🔧 Configuration
-
-### AI Provider Priority
-
-The system automatically selects the best available AI provider:
-
-1. **Groq** - Fastest response times (if API key provided)
-2. **Cerebras** - High daily limits (14,400 req/day)
-3. **Gemini/OpenRouter** - Race for best response
-4. **Fallback** - Rule-based responses if all AI fails
-
-### Customization
-
-- **Difficulty Levels**: Easy, Medium, Hard
-- **Experience Levels**: 0-2 years, 2-5 years, 5+ years
-- **Question Categories**: Intro, Technical, Behavioral, Closing
-
-## 🧪 Testing
-
-### Backend Tests
 ```bash
-cd backend
-python manage.py test core
-```
-
-### Frontend Tests
-```bash
+# Navigate to frontend
 cd frontend
-npm run lint
+
+# Install dependencies
+npm install
+
+# Create .env file
+VITE_DEEPGRAM_API_KEY=your_deepgram_key
+
+# Start dev server
+npm run dev
 ```
 
-## 📈 Roadmap
+Access the app at **http://localhost:5173**
 
-- [ ] User authentication system
-- [ ] Video recording and playback
-- [ ] Interview scheduling
-- [ ] Peer review system
-- [ ] Mobile app (React Native)
-- [ ] Multi-language support
-- [ ] Company-specific question banks
+---
+
+## 📱 Pages Overview
+
+| Page | Route | Description |
+|------|-------|-------------|
+| Home | `/` | Landing page with features overview |
+| Dashboard | `/dashboard` | Start interviews, view history, access features |
+| Interview Setup | `/interview/:id` | Configure camera, mic before interview |
+| Interview | `/interview-session/:id` | Main AI interview experience |
+| Results | `/result/:id` | Detailed performance analysis |
+| Analytics | `/analytics` | Historical performance trends |
+| ATS Scanner | `/ats-scanner` | Resume vs job description analysis |
+| Resources | `/resources` | Interview guides and tips |
+| Templates | `/templates` | Fill-in-the-blank answer templates |
+| Company Prep | `/company-prep` | Company-specific preparation |
+| Quick Practice | `/quick-practice` | 3-question drill sessions |
+| Privacy | `/privacy` | Data management and deletion |
+
+---
+
+## 🔑 API Endpoints
+
+### Resume Management
+- `GET /api/resumes/` - List all resumes
+- `POST /api/resumes/` - Upload new resume
+- `DELETE /api/resumes/:id/` - Delete resume
+- `POST /api/resumes/:id/ats_score/` - Get ATS score
+
+### Interviews
+- `POST /api/interviews/` - Create new interview
+- `POST /api/interviews/:id/start_interview/` - Start interview
+- `POST /api/interviews/:id/submit_response/` - Submit answer
+- `GET /api/interviews/:id/generate_report/` - Get results
+
+### Features
+- `GET /api/interviews/student_progress/` - Dashboard stats
+- `GET /api/interviews/detailed_analytics/` - Full analytics
+- `GET /api/interviews/resources/` - Interview guides
+- `GET /api/interviews/answer_templates/` - Answer templates
+- `GET /api/interviews/company_prep/` - Company prep
+- `POST /api/interviews/quick_practice/` - Quick drill
+
+### Privacy
+- `DELETE /api/students/delete_all_data/` - Hard delete all data
+
+---
+
+## 🚀 Future Enhancements
+
+### 🎯 Coming Soon
+- [ ] **Video Recording**: Record interview sessions for self-review
+- [ ] **Multi-language Support**: Hindi, Tamil, Telugu interview support
+- [ ] **Custom Question Sets**: Create and save your own question banks
+- [ ] **Interview Scheduling**: Schedule practice sessions with reminders
+- [ ] **Peer Practice Mode**: Practice with friends in real-time
+
+### 🔮 Planned Features
+- [ ] **AI Interviewer Avatar**: Animated 3D avatar during interviews
+- [ ] **Industry-Specific Modes**: Tech, Finance, Healthcare interview styles
+- [ ] **Resume Builder**: Built-in resume editor with ATS optimization
+- [ ] **LinkedIn Integration**: Import profile data for personalized questions
+- [ ] **Certification Prep**: Specific prep for AWS, Google, Azure certifications
+
+### 🛠️ Technical Improvements
+- [ ] **User Authentication**: Optional login for progress sync across devices
+- [ ] **PWA Support**: Install as mobile app
+- [ ] **Offline Mode**: Practice without internet using cached questions
+- [ ] **WebRTC Integration**: Better audio/video quality
+- [ ] **Analytics Export**: Download performance reports as PDF
+
+### 🎨 UI/UX Enhancements
+- [ ] **Theme Customization**: Light mode, custom accent colors
+- [ ] **Accessibility**: Screen reader support, keyboard navigation
+- [ ] **Onboarding Tour**: Guided walkthrough for new users
+- [ ] **Achievement System**: Badges and milestones for motivation
+
+---
+
+## 🐛 Known Issues
+
+- Transcript may be delayed on slow network connections
+- MediaPipe requires good lighting for accurate tracking
+- Browser Web Speech API fallback has lower accuracy than Deepgram
+
+---
 
 ## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
@@ -269,24 +309,25 @@ npm run lint
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
+---
+
+## 👥 Authors
+
+- **Umesh Yadav** - [GitHub](https://github.com/Umesh49)
+- **Neha Yadav** - [GitHub](https://github.com/nehayadav)
+
+---
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 👨‍💻 Author
+---
 
-**Umesh**
-- GitHub: [@Umesh49](https://github.com/Umesh49)
+## ⭐ Show Your Support
 
-## 🙏 Acknowledgments
-
-- Google Generative AI for powerful language models
-- Deepgram for accurate speech-to-text
-- MediaPipe team for body tracking solutions
-- The open-source community
+Give a ⭐️ if this project helped you!
 
 ---
 
-<p align="center">
-  Made with ❤️ for job seekers everywhere
-</p>
+<p align="center">Made with ❤️ for job seekers everywhere</p>

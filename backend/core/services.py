@@ -486,56 +486,41 @@ def get_pre_interview_tips(position, experience_level):
     return tips
 
 
-def progressive_question_order(questions, experience_level="0-2 years"):
-    """
-    Orders questions from easiest to hardest for confidence building.
-    Critical for beginners who need early wins.
-    """
-    # Categorize by beginner difficulty
-    warmup = []  # Easy, open-ended
-    core = []    # Medium, behavioral
-    stretch = []  # Challenging, technical depth
-    
-    for q in questions:
-        text_lower = q.get('text', '').lower()
-        category = q.get('category', '').lower()
+    @staticmethod
+    def progressive_question_order(questions, experience_level="0-2 years"):
+        """
+        Orders questions logically: Intro -> Project/Technical -> Behavioral.
+        Preserves ALL generated questions instead of arbitrary slicing.
+        """
+        # 1. Define category priority (lower = earlier)
+        category_order = {
+            'intro': 1,
+            'project': 3,
+            'technical': 3, # Project and Technical are interleaved/same phase usually
+            'ai': 2,
+            'behavioral': 4,
+            'situational': 4
+        }
         
-        # Warmup questions (build confidence) - check category first
-        if category == 'intro' or any(phrase in text_lower for phrase in [
-            'tell me about yourself',
-            'why are you interested',
-            'what are your strengths',
-            'describe your background',
-            'walk me through',
-            'who are you',
-            'introduce yourself',
-            'about this role'
-        ]):
-            warmup.append(q)
+        # 2. Sort function
+        def get_sort_key(q):
+            cat = q.get('category', '').lower()
+            # Default to middle priority if unknown
+            priority = category_order.get(cat, 3) 
+            
+            # Secondary sort: Difficulty (Easy -> Medium -> Hard) within category
+            diff = q.get('difficulty', 'Medium').lower()
+            diff_score = {'easy': 1, 'medium': 2, 'hard': 3}.get(diff, 2)
+            
+            # Maintain original AI order as tie-breaker (implied by index stability in python sort)
+            return (priority, diff_score)
+
+        # 3. Sort and return
+        # Python's sort is stable, so original AI ordering within categories is preserved
+        ordered = sorted(questions, key=get_sort_key)
         
-        # Stretch questions (challenge them)
-        elif any(phrase in text_lower for phrase in [
-            'what would you do differently',
-            'how would you handle',
-            'trade-offs',
-            'compare',
-            'design'
-        ]) or q.get('difficulty') == 'Hard':
-            stretch.append(q)
-        
-        # Core questions
-        else:
-            core.append(q)
-    
-    # Order: 2 warmup → 5-6 core → 2-3 stretch → end with 1 easy
-    ordered = warmup[:2] + core[:6] + stretch[:3]
-    
-    # End with something positive
-    if len(warmup) > 2:
-        ordered.append(warmup[2])
-    
-    print(f"[QUESTION ORDER] Warmup: {len(warmup[:2])}, Core: {len(core[:6])}, Stretch: {len(stretch[:3])}")
-    return ordered
+        # Ensure we don't return too many questions if AI went crazy, but don't cut strict 2-6-3
+        return ordered[:15]
 
 
 def generate_beginner_encouragement(response_count, performance_trend):
@@ -988,10 +973,13 @@ class ResumeParserService:
         }
 
     @staticmethod
-    def generate_questions(position, resume_data, difficulty="Medium", experience_level="0-2 years"):
+    def generate_questions(position, resume_data, difficulty="Medium", experience_level="0-2 years", excluded_questions=None):
         """
         Generates personalized interview questions using enhanced AI prompting.
+        Excludes recently asked questions to prevent repetition.
         """
+        excluded_questions = excluded_questions or []
+        
         # Extract resume details
         skills = resume_data.get('skills', [])
         projects = resume_data.get('projects', [])
@@ -1003,7 +991,16 @@ class ResumeParserService:
         has_any_ai = HAS_GEMINI or HAS_OPENAI or HAS_PERPLEXITY or HAS_OPENROUTER or HAS_BYTEZ
         print(f"[AI Status] Gemini: {HAS_GEMINI}, OpenRouter: {HAS_OPENROUTER}, "
               f"OpenAI: {HAS_OPENAI}, Perplexity: {HAS_PERPLEXITY}, Bytez: {HAS_BYTEZ}")
-        print(f"[Resume Data] Skills: {len(skills)}, Projects: {len(projects)}, Experience: {len(experience)}")
+        
+        # Filter excluded questions specific to this context if needed, 
+        # but passing the raw list to LLM is usually better.
+        # Format excluded list for prompt
+        excluded_text = ""
+        if excluded_questions:
+            # Take last 20 to keep prompt size manageable
+            recent_excluded = excluded_questions[:20] 
+            excluded_text = "\n\n**CRITICAL - DO NOT ASK THESE QUESTIONS (ALREADY ASKED):**\n" + \
+                            "\n".join([f"- {q}" for q in recent_excluded])
 
         # Build detailed resume context
         context_parts = []
@@ -1112,6 +1109,7 @@ Future trends, innovation"""
         prompt = f"""You are an expert interviewer conducting a {difficulty} level mock interview for **{position}**.
 
 OBJECTIVE: Generate realistic interview questions for this candidate. Follow the EXACT structure below.
+{excluded_text}
 
 CANDIDATE PROFILE:
 {resume_context}
@@ -1146,6 +1144,7 @@ Q4: "Great! I'd like to ask you some technical questions about [their answer to 
 - Questions must reference their ACTUAL skills and projects
 - Start easy, build to harder, end with behavioral
 - Each question should be unique and specific
+- **DO NOT** ask questions from the "ALREADY ASKED" list above.
 
 **OUTPUT FORMAT (JSON array):**
 ```json
@@ -1167,12 +1166,24 @@ Generate exactly 12-14 questions following the structure above:"""
                     validated_questions = []
                     for q in questions:
                         if isinstance(q, dict) and 'text' in q:
-                            validated_questions.append({
-                                'text': q['text'],
-                                'category': q.get('category', 'Technical'),
-                                'difficulty': q.get('difficulty', difficulty),
-                                'coaching_tip': q.get('coaching_tip', '')
-                            })
+                            # Verify deduplication locally just in case
+                            is_duplicate = False
+                            q_text_clean = q['text'].lower().strip()
+                            for ex in excluded_questions:
+                                if q_text_clean == ex.lower().strip() or q_text_clean in ex.lower() or ex.lower() in q_text_clean:
+                                    # Simple collision check - skip only if extremely similar
+                                    # But relax it a bit because "Tell me about yourself" is always needed.
+                                    if "tell me about yourself" not in q_text_clean: 
+                                        is_duplicate = True
+                                        break
+                            
+                            if not is_duplicate:
+                                validated_questions.append({
+                                    'text': q['text'],
+                                    'category': q.get('category', 'Technical'),
+                                    'difficulty': q.get('difficulty', difficulty),
+                                    'coaching_tip': q.get('coaching_tip', '')
+                                })
                     
                     if len(validated_questions) >= 10:
                         print(f"[SUCCESS] Generated {len(validated_questions)} AI questions")
@@ -1189,6 +1200,7 @@ Generate exactly 12-14 questions following the structure above:"""
         logger.info("AI unavailable or failed - Using enhanced fallback questions")
         print("[INFO] Using enhanced fallback questions")
         
+        # Base fallback set
         fallback_questions = [
             # INTRO/WARMUP (First - build confidence)
             {
@@ -1301,9 +1313,22 @@ Generate exactly 12-14 questions following the structure above:"""
             "coaching_tip": "Innovation awareness"
         })
         
+        # Deduplicate Fallbacks
+        final_fallbacks = []
+        for q in fallback_questions:
+            is_dup = False
+            for ex in excluded_questions:
+                 # Check for collision
+                 if q['text'].lower() == ex.lower():
+                     if "tell me about yourself" not in ex.lower():
+                        is_dup = True
+                        break
+            if not is_dup:
+                final_fallbacks.append(q)
+
         # Don't shuffle - maintain Intro → Technical → Behavioral order
         # progressive_question_order will ensure proper ordering
-        return progressive_question_order(fallback_questions, experience_level)
+        return progressive_question_order(final_fallbacks, experience_level)
 
     @staticmethod
     def generate_followup_question(session, prev_question, prev_answer, voice_metrics=None):
@@ -1439,9 +1464,8 @@ Return JSON: {{"text": "Your specific follow-up question?"}}"""
     @staticmethod
     def analyze_response(question_text, user_transcript, fluency_metrics):
         """
-        Provides detailed coaching feedback with validated metrics.
-        AI (Gemini/OpenAI/Perplexity) generates comprehensive analysis.
-        Falls back to calculated metrics if AI unavailable.
+        Provides detailed coaching feedback using a 'Senior Engineer' persona.
+        Avoids generic feedback by enforcing quote-based critique.
         """
         # Validate and normalize metrics
         fluency_metrics = validate_and_normalize_metrics(fluency_metrics, user_transcript)
@@ -1452,234 +1476,88 @@ Return JSON: {{"text": "Your specific follow-up question?"}}"""
         filler_words = voice_metrics.get('filler_words', {})
         avg_volume = voice_metrics.get('average_volume', 0.5)
         word_count = voice_metrics.get('word_count', 0)
-        speaking_duration = voice_metrics.get('speaking_duration_seconds', 0)
         total_fillers = sum(filler_words.values()) if filler_words else 0
         
-        # Grammar check (offline)
+        # Structure analysis
+        used_star, star_score = detect_star_method(user_transcript)
+        content_quality = calculate_content_quality(question_text, user_transcript)
         grammar_errors = check_grammar(user_transcript)
         
-        # STAR method detection
-        used_star, star_score = detect_star_method(user_transcript)
-        
-        # Content quality score
-        content_quality = calculate_content_quality(question_text, user_transcript)
-        
-        # Use AI for enhanced analysis if available
+        # Use AI for meaningful Analysis
         if HAS_GEMINI or HAS_OPENAI or HAS_PERPLEXITY or HAS_OPENROUTER:
-            prompt = f"""Expert interview coach - analyze this BEGINNER's answer with SPECIFIC, ENCOURAGING feedback.
+            prompt = f"""You are a SENIOR ENGINEERING MANAGER conducting a rigorous interview.
+            
+**CONTEXT:**
+- Question: "{question_text}"
+- Candidate Answer: "{user_transcript}"
+- Duration: {word_count} words
+- Pace: {wpm} wpm (Normal: 120-150)
+- Fillers: {total_fillers}
 
-**QUESTION:** "{question_text}"
-**ANSWER:** "{user_transcript}"
+**YOUR TASK:**
+Provide raw, honest feedback. Do not coddle. Treat this like a real debrief.
+1. **Fact Check**: Is the answer technical/logically sound? 
+2. **Quote the Candidate**: You MUST quote exact phrases they used to prove you listened.
+3. **No Fluff**: Do NOT say "Good effort", "You tried hard", or "Keep practicing".
+4. **Identify Gaps**: specific technologies, concepts, or details missing.
 
-**METRICS:**
-- Pace: {wpm} wpm (ideal: 120-150)
-- Pauses: {pause_count}
-- Fillers: {filler_words} (total: {total_fillers})
-- Words: {word_count}
-- STAR method: {"Yes" if used_star else f"Partial ({star_score}/4)"}
-- Content quality: {content_quality}/100
-
-**TASK:**
-As a supportive coach for BEGINNERS, provide SPECIFIC feedback referencing exact phrases.
-
-1. **is_answer_correct** (boolean): Is the answer technically/factually correct? 
-   - For technical questions: Is the explanation accurate?
-   - For behavioral questions: Does it follow STAR format properly?
-   
-2. **correctness_feedback** (string): If wrong/incomplete, explain what's incorrect and provide the correct answer briefly.
-
-3. **strengths** (2-4 items): Clear strengths in their answer
-   - Quote specific good phrases
-   - Highlight communication skills, knowledge shown, structure
-   Example: ["Clear explanation of the concept", "Good use of specific example from project"]
-   
-4. **weaknesses** (2-4 items): Clear areas needing improvement
-   - Be specific about what was missing or wrong
-   - Give concrete suggestions to fix
-   Example: ["Missing specific metrics/numbers in result", "Could add more technical depth"]
-   
-5. **feedback_text** (2-3 sentences): Overall coaching summary
-   
-6. **improvement_tips** (2-3 items): Actionable practice tips
-
-7. **recommended_resources** (2-3 items): YouTube video recommendations based on their weaknesses
-   For each weakness, provide a relevant learning resource with title and URL.
-   Use popular educational YouTube channels like freeCodeCamp, Fireship, Traversy Media, Tech With Tim, etc.
-   Format: [{{"title": "Video Title", "url": "https://youtube.com/watch?v=...", "topic": "What it covers"}}]
-   Example: [{{"title": "React Virtual DOM Explained", "url": "https://youtube.com/watch?v=RquIA-W1gXk", "topic": "Virtual DOM concepts"}}]
-
-Return JSON:
+**OUTPUT JSON:**
 {{
   "is_answer_correct": true/false,
-  "correctness_feedback": "If wrong, explain what's incorrect and provide correct answer",
-  "strengths": ["Strength 1", "Strength 2"],
-  "weaknesses": ["Weakness 1 with fix suggestion", "Weakness 2"],
-  "feedback_text": "2-3 sentence overall coaching",
-  "improvement_tips": ["Actionable tip 1", "Actionable tip 2"],
-  "recommended_resources": [{{"title": "Video title", "url": "https://youtube.com/...", "topic": "Topic"}}],
-  "sentiment_score": 0.6,
-  "star_method_used": {str(used_star).lower()},
-  "content_quality_score": {content_quality},
-  "grammar_errors": []
+  "correctness_feedback": "Direct correction of any technical errors. If correct, be brief.",
+  "strengths": [
+    "Quote a specific strong phrase: 'XYZ' showed good insight.",
+    "Specific technical concept explained well."
+  ],
+  "weaknesses": [
+    "Quote a vague phrase: 'I did stuff' is too vague. Say WHAT you did.",
+    "Missing specific metrics/results.",
+    "Did not mention [Specific Technology/Concept] which is standard for this q."
+  ],
+  "feedback_text": "2-3 sentences of direct advice. Example: 'You rambled on X. Focus more on Y.'",
+  "improvement_tips": [
+    "Actionable tip 1",
+    "Actionable tip 2"
+  ],
+  "recommended_resources": [
+    {{"title": "Video Title", "url": "https://www.youtube.com/results?search_query=specific+topic", "topic": "Relates to weakness X"}}
+  ]
 }}"""
-
+            
             ai_response = call_ai(prompt, temperature=0.7)
             if ai_response:
                 try:
                     json_str = ai_response.replace('```json', '').replace('```', '').strip()
                     ai_analysis = json.loads(json_str)
                     
-                    # Add beginner-friendly tips based on metrics
                     result = {
                         "is_answer_correct": ai_analysis.get('is_answer_correct', True),
                         "correctness_feedback": ai_analysis.get('correctness_feedback', ''),
-                        "strengths": ai_analysis.get('strengths', ai_analysis.get('detailed_positives', []))[:4],
-                        "weaknesses": ai_analysis.get('weaknesses', ai_analysis.get('detailed_improvements', []))[:4],
+                        "strengths": ai_analysis.get('strengths', [])[:3],
+                        "weaknesses": ai_analysis.get('weaknesses', [])[:3],
                         "feedback_text": ai_analysis.get('feedback_text', ''),
-                        "improvement_tips": ai_analysis.get('improvement_tips', [])[:3],
-                        "recommended_resources": ai_analysis.get('recommended_resources', [])[:3],
-                        "sentiment_score": ai_analysis.get('sentiment_score', 0.5),
+                        "improvement_tips": ai_analysis.get('improvement_tips', [])[:2],
+                        "recommended_resources": ai_analysis.get('recommended_resources', [])[:2],
+                        "sentiment_score": 0.5, # Placeholder
                         "star_method_used": used_star,
                         "content_quality_score": content_quality,
                         "grammar_errors": [e['message'] for e in grammar_errors]
                     }
-                    
-                    # Enhance with beginner tips
-                    result = add_beginner_friendly_tips_to_feedback(result, voice_metrics)
-                    print("[SUCCESS] Generated AI analysis with beginner tips")
                     return result
-                    
                 except Exception as e:
-                    print(f"[ERROR] AI analysis parsing failed: {e}")
+                    print(f"[ERROR] AI Parsing failed: {e}")
                     log_ai_failure('response_analysis', e)
-        
-        # FALLBACK: Build detailed analysis with calculated metrics
-        print("[INFO] Using fallback analysis (AI unavailable)")
-        
-        positives = []
-        improvements = []
-        tips = []
-        
-        # Grammar
-        if not grammar_errors:
-            positives.append("Grammatically clear and well-structured speech")
-        elif len(grammar_errors) <= 2:
-            improvements.append(f"Minor grammar notes: {grammar_errors[0]['message']}")
-            tips.append("Practice speaking in complete sentences")
-        else:
-            improvements.append(f"Found {len(grammar_errors)} grammar issues")
-            tips.append("Record yourself and review for grammatical clarity")
-        
-        # Speaking pace
-        if 100 <= wpm <= 150:
-            positives.append(f"Excellent pace ({wpm} wpm) - confident and clear")
-        elif 80 <= wpm < 100:
-            positives.append(f"Steady pace ({wpm} wpm) - thoughtful delivery")
-        elif wpm < 80 and wpm > 0:
-            improvements.append(f"Slow pace ({wpm} wpm) - aim for 120-140 wpm")
-            tips.append("Practice speaking at conversational speed")
-        elif wpm > 160:
-            improvements.append(f"Very fast ({wpm} wpm) - slow down for clarity")
-            tips.append("Take deliberate pauses between thoughts")
-        
-        # Filler words
-        if total_fillers == 0:
-            positives.append("No filler words - polished delivery!")
-        elif total_fillers <= 2:
-            positives.append(f"Minimal fillers (only {total_fillers})")
-        elif total_fillers <= 5:
-            filler_list = ', '.join([f'"{w}"×{c}' for w, c in list(filler_words.items())[:3]])
-            improvements.append(f"Used {total_fillers} fillers: {filler_list}")
-            tips.append("Pause silently instead of 'um', 'uh', 'like'")
-        else:
-            filler_list = ', '.join([f'"{w}"×{c}' for w, c in list(filler_words.items())[:3]])
-            improvements.append(f"High filler usage ({total_fillers}): {filler_list}")
-            tips.append("Record yourself and count fillers - aim to reduce 50%")
-        
-        # Pauses
-        if pause_count <= 2:
-            positives.append("Smooth flow with minimal pauses")
-        elif pause_count <= 4:
-            improvements.append(f"{pause_count} noticeable pauses - may indicate thinking")
-            tips.append("Prepare mental outline before speaking")
-        else:
-            improvements.append(f"Many pauses ({pause_count}) - suggests nervousness")
-            tips.append("Practice answers until they feel natural")
-        
-        # Answer length
-        if word_count >= 80:
-            positives.append(f"Detailed answer ({word_count} words) - excellent depth")
-        elif word_count >= 40:
-            positives.append(f"Good length ({word_count} words)")
-        elif word_count >= 15:
-            improvements.append(f"Brief answer ({word_count} words) - elaborate more")
-            tips.append("Use STAR: Situation, Task, Action, Result")
-        elif word_count > 0:
-            improvements.append(f"Very short ({word_count} words) - needs detail")
-            tips.append("Aim for 60-120 words with specific examples")
-        
-        # Volume
-        if avg_volume >= 0.5:
-            positives.append("Good volume - projected confidence")
-        elif avg_volume >= 0.3:
-            improvements.append("Moderate volume - project more confidence")
-            tips.append("Speak from diaphragm and project voice")
-        else:
-            improvements.append("Quiet voice - may signal low confidence")
-            tips.append("Practice speaking louder to project authority")
-        
-        # STAR method
-        if used_star:
-            positives.append(f"Used STAR method effectively ({star_score}/4 components)")
-        elif star_score >= 2:
-            improvements.append(f"Partial STAR structure ({star_score}/4) - try to include all 4")
-        else:
-            tips.append("Structure answers with STAR: Situation, Task, Action, Result")
-        
-        # Content quality
-        if content_quality >= 70:
-            positives.append(f"High content quality ({content_quality}/100) - specific and relevant")
-        elif content_quality >= 50:
-            improvements.append(f"Content quality: {content_quality}/100 - add more examples")
-        else:
-            improvements.append(f"Content quality: {content_quality}/100 - needs more depth and examples")
-        
-        # Build feedback text
-        feedback_text = ""
-        if positives:
-            feedback_text = "**Strengths:** " + "; ".join(positives[:3])
-        if improvements:
-            feedback_text += "\n\n**Areas to improve:** " + "; ".join(improvements[:3])
-        if not feedback_text:
-            feedback_text = "Keep practicing! Focus on clarity and detail."
-        
-        # Calculate sentiment
-        sentiment = 0.0
-        if wpm >= 100 and wpm <= 150:
-            sentiment += 0.3
-        if total_fillers <= 3:
-            sentiment += 0.2
-        if word_count >= 50:
-            sentiment += 0.2
-        if pause_count <= 3:
-            sentiment += 0.2
-        if used_star:
-            sentiment += 0.1
-        
-        result = {
-            "detailed_positives": positives[:4],
-            "detailed_improvements": improvements[:4],
-            "feedback_text": feedback_text,
-            "improvement_tips": tips[:3] if tips else ["Keep practicing", "Record yourself"],
-            "sentiment_score": min(1.0, sentiment),
-            "star_method_used": used_star,
-            "content_quality_score": content_quality,
-            "grammar_errors": [e['message'] for e in grammar_errors]
+
+        # Fallback if AI fails
+        return {
+            "is_answer_correct": True, 
+            "feedback_text": "AI service unavailable. Please check metrics.",
+            "strengths": ["Clear audio"],
+            "weaknesses": ["Analysis unavailable"],
+            "improvement_tips": ["Check connection"],
+            "recommended_resources": [],
+            "grammar_errors": []
         }
-        
-        # Add beginner tips
-        result = add_beginner_friendly_tips_to_feedback(result, voice_metrics)
-        return result
 
     @staticmethod
     def generate_final_report(session_id):
@@ -1793,20 +1671,6 @@ Return JSON:
 Create an encouraging, actionable report for a BEGINNER with:
 
 1. **strengths** (3-5 items): Specific things they did well
-   Example: "Excellent speaking pace (125 wpm) - showed confidence throughout"
-   
-2. **areas_for_improvement** (3-5 items): Specific, actionable improvements
-   Example: "Filler words (5.2/answer) - practice pausing silently instead of 'um'"
-   
-3. **recommendations** (3-5 items): Concrete next steps
-   Example: "Record daily: Practice one STAR answer, count fillers, aim for <3"
-   
-4. **key_insights** (2-3 sentences): Overall assessment
-   Start positive, acknowledge progress, motivate
-
-**TONE:**
-- Encouraging and supportive
-- Specific with numbers
 - Actionable advice
 - End with motivation
 
@@ -1815,6 +1679,9 @@ Return JSON:
   "strengths": ["Specific strength 1", "Specific strength 2", ...],
   "areas_for_improvement": ["Specific improvement 1", "Specific improvement 2", ...],
   "recommendations": ["Actionable tip 1", "Actionable tip 2", ...],
+  "learning_path": [
+    {{"title": "Resource Title", "url": "https://www.youtube.com/results?search_query=topic", "type": "Video", "duration": "10 min"}}
+  ],
   "key_insights": "2-3 sentence overall assessment",
   "progress_note": "Encouraging final message"
 }}"""
@@ -1910,6 +1777,7 @@ Return JSON:
                             'progress_note',
                             'Keep practicing - you\'re improving!'
                         ),
+                        "learning_path": ai_report.get('learning_path', [])[:3],
                         "comparison": {
                             "your_score": overall_score,
                             "average_score": 65,

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Camera, Mic, MicOff, CheckCircle, XCircle, AlertCircle, Play, Volume2 } from 'lucide-react';
+import { Camera, Mic, MicOff, CheckCircle, XCircle, AlertCircle, Play, Volume2, RefreshCw, Lightbulb, Sparkles } from 'lucide-react';
 
 const InterviewSetup = () => {
     const { sessionId } = useParams();
@@ -11,7 +11,7 @@ const InterviewSetup = () => {
     const animationRef = useRef(null);
 
     // Setup state
-    const [cameraStatus, setCameraStatus] = useState('pending'); // pending, success, error
+    const [cameraStatus, setCameraStatus] = useState('pending');
     const [micStatus, setMicStatus] = useState('pending');
     const [cameraError, setCameraError] = useState('');
     const [micError, setMicError] = useState('');
@@ -27,11 +27,8 @@ const InterviewSetup = () => {
     const audioStreamRef = useRef(null);
 
     useEffect(() => {
-        // Auto-start device tests
         testDevices();
-
         return () => {
-            // Cleanup
             if (animationRef.current) cancelAnimationFrame(animationRef.current);
             if (videoStreamRef.current) {
                 videoStreamRef.current.getTracks().forEach(t => t.stop());
@@ -46,7 +43,6 @@ const InterviewSetup = () => {
     }, []);
 
     useEffect(() => {
-        // Check if all devices are ready
         if (cameraStatus === 'success' && micStatus === 'success') {
             setAllReady(true);
         } else {
@@ -63,12 +59,10 @@ const InterviewSetup = () => {
         setCameraStatus('pending');
         setCameraError('');
 
-        // Try loose constraints on retry, or specific on first attempt
         const constraints = retryMode ? { video: true } : { video: { width: 640, height: 480, facingMode: 'user' } };
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
             videoStreamRef.current = stream;
 
             if (videoRef.current) {
@@ -87,7 +81,6 @@ const InterviewSetup = () => {
         } catch (err) {
             console.error('Camera error:', err);
 
-            // Auto-retry once with loose constraints if it was a constraint/timeout issue
             if (!retryMode && (err.name === 'OverconstrainedError' || err.name === 'AbortError' || err.message.includes('Timeout'))) {
                 console.log("Retrying camera with loose constraints...");
                 testCamera(true);
@@ -110,20 +103,15 @@ const InterviewSetup = () => {
         setMicError('');
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: true
-            });
-
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             audioStreamRef.current = stream;
 
-            // Setup audio analyzer for level meter
             audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
             const source = audioContextRef.current.createMediaStreamSource(stream);
             analyserRef.current = audioContextRef.current.createAnalyser();
             analyserRef.current.fftSize = 256;
             source.connect(analyserRef.current);
 
-            // Start level monitoring
             monitorAudioLevel();
 
             const track = stream.getAudioTracks()[0];
@@ -167,13 +155,11 @@ const InterviewSetup = () => {
             return;
         }
 
-        // Stop audio level monitoring temporarily to avoid conflicts
         if (animationRef.current) {
             cancelAnimationFrame(animationRef.current);
             animationRef.current = null;
         }
 
-        // Suspend audio context to free up mic
         if (audioContextRef.current && audioContextRef.current.state === 'running') {
             await audioContextRef.current.suspend();
         }
@@ -184,7 +170,6 @@ const InterviewSetup = () => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = new SpeechRecognition();
 
-        // Enable continuous mode and interim results for better detection
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = 'en-US';
@@ -203,7 +188,6 @@ const InterviewSetup = () => {
                     hasResult = true;
                 } else {
                     interimTranscript = transcript;
-                    // Show interim results
                     setSpeechTestResult(`🎤 Hearing: "${transcript}"...`);
                 }
             }
@@ -217,15 +201,8 @@ const InterviewSetup = () => {
         recognition.onerror = (event) => {
             console.error('Speech recognition error:', event.error);
 
-            // Handle specific errors
             if (event.error === 'no-speech') {
-                setSpeechTestResult(`⚠️ No speech detected.
-
-Try these fixes:
-1. Go to chrome://settings/content/microphone and select your correct mic
-2. Speak VERY LOUD into the microphone  
-3. Close other apps using your mic
-4. Refresh the page and try again`);
+                setSpeechTestResult(`⚠️ No speech detected. Try speaking louder or check your microphone.`);
             } else if (event.error === 'audio-capture') {
                 setSpeechTestResult('⚠️ No microphone found or mic in use by another app.');
             } else if (event.error === 'not-allowed') {
@@ -240,7 +217,6 @@ Try these fixes:
         recognition.onend = () => {
             setIsTesting(false);
 
-            // Resume audio level monitoring
             if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
                 audioContextRef.current.resume().then(() => {
                     monitorAudioLevel();
@@ -256,7 +232,6 @@ Try these fixes:
             recognition.start();
             console.log('Speech recognition started');
 
-            // Auto-stop after 15 seconds
             setTimeout(() => {
                 recognition.stop();
             }, 15000);
@@ -265,7 +240,6 @@ Try these fixes:
             setSpeechTestResult('❌ Failed to start. Refresh page and try again.');
             setIsTesting(false);
 
-            // Resume audio monitoring
             if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
                 audioContextRef.current.resume().then(() => monitorAudioLevel());
             }
@@ -273,7 +247,6 @@ Try these fixes:
     };
 
     const proceedToInterview = () => {
-        // Stop the test streams (interview will request its own)
         if (videoStreamRef.current) {
             videoStreamRef.current.getTracks().forEach(t => t.stop());
         }
@@ -287,170 +260,217 @@ Try these fixes:
             audioContextRef.current.close();
         }
 
-        // Navigate to interview
         navigate(`/interview-session/${sessionId}`);
     };
 
     const StatusIcon = ({ status }) => {
-        if (status === 'success') return <CheckCircle className="text-green-500" size={24} />;
-        if (status === 'error') return <XCircle className="text-red-500" size={24} />;
-        return <AlertCircle className="text-yellow-500 animate-pulse" size={24} />;
+        if (status === 'success') return <CheckCircle className="text-green-400" size={24} />;
+        if (status === 'error') return <XCircle className="text-red-400" size={24} />;
+        return <AlertCircle className="text-amber-400 animate-pulse" size={24} />;
     };
 
     return (
-        <div className="min-h-screen p-8 max-w-4xl mx-auto">
-            <h1 className="text-3xl font-bold mb-2 text-center">Interview Setup</h1>
-            <p className="text-gray-400 text-center mb-8">Let's make sure your camera and microphone are working</p>
+        <div className="min-h-screen px-6 py-8 max-w-5xl mx-auto">
+            {/* Header */}
+            <div className="text-center mb-10">
+                <h1 className="text-3xl font-bold mb-2">
+                    Interview <span className="gradient-text">Setup</span>
+                </h1>
+                <p className="text-gray-400">Let's make sure your camera and microphone are working</p>
+            </div>
+
+            {/* Progress Steps */}
+            <div className="flex justify-center gap-4 mb-10">
+                <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${cameraStatus === 'success' ? 'bg-green-500/20 text-green-400' : 'bg-gray-800 text-gray-400'}`}>
+                    <Camera size={16} />
+                    Camera
+                    {cameraStatus === 'success' && <CheckCircle size={14} />}
+                </div>
+                <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${micStatus === 'success' ? 'bg-green-500/20 text-green-400' : 'bg-gray-800 text-gray-400'}`}>
+                    <Mic size={16} />
+                    Microphone
+                    {micStatus === 'success' && <CheckCircle size={14} />}
+                </div>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Camera Preview */}
                 <div className="glass-panel p-6">
-                    <div className="flex items-center gap-3 mb-4">
-                        <Camera className="text-blue-400" />
-                        <div>
-                            <h2 className="text-xl font-semibold">Camera</h2>
-                            {cameraLabel && <p className="text-xs text-blue-300">{cameraLabel}</p>}
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                                <Camera className="text-blue-400" size={20} />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-semibold text-white">Camera</h2>
+                                {cameraLabel && <p className="text-xs text-blue-300 truncate max-w-[200px]">{cameraLabel}</p>}
+                            </div>
                         </div>
                         <StatusIcon status={cameraStatus} />
                     </div>
 
-                    <div className="relative aspect-video bg-black rounded-lg overflow-hidden mb-4">
+                    <div className="relative aspect-video bg-zinc-950 rounded-xl overflow-hidden mb-4 border border-white/10">
                         <video
                             ref={videoRef}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover transform scale-x-[-1]"
                             autoPlay
                             muted
                             playsInline
                         />
                         {cameraStatus === 'pending' && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                                <p className="text-white">Requesting camera access...</p>
+                            <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
+                                <div className="flex flex-col items-center gap-3">
+                                    <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                    <p className="text-gray-400 text-sm">Requesting camera access...</p>
+                                </div>
                             </div>
                         )}
                         {cameraStatus === 'error' && (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
-                                <div className="text-center p-4">
-                                    <XCircle className="text-red-500 mx-auto mb-2" size={48} />
-                                    <p className="text-red-400 mb-4">{cameraError}</p>
-                                    <button
-                                        onClick={() => testCamera(true)}
-                                        className="px-6 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors font-semibold"
-                                    >
-                                        Retry Connection
-                                    </button>
-                                </div>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/90 backdrop-blur-sm p-6">
+                                <XCircle className="text-red-400 mb-3" size={48} />
+                                <p className="text-red-300 text-center mb-4 text-sm">{cameraError}</p>
+                                <button
+                                    onClick={() => testCamera(true)}
+                                    className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors font-medium flex items-center gap-2"
+                                >
+                                    <RefreshCw size={16} /> Retry
+                                </button>
                             </div>
                         )}
                     </div>
 
                     <button
                         onClick={() => testCamera(true)}
-                        className="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors"
+                        className="w-full py-2.5 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-600/30 text-blue-400 rounded-lg transition-colors flex items-center justify-center gap-2"
                     >
-                        Retry Camera manually
+                        <RefreshCw size={16} /> Retry Camera
                     </button>
                 </div>
 
                 {/* Microphone Test */}
                 <div className="glass-panel p-6">
-                    <div className="flex items-center gap-3 mb-4">
-                        <Mic className="text-green-400" />
-                        <div>
-                            <h2 className="text-xl font-semibold">Microphone</h2>
-                            {micLabel && <p className="text-xs text-green-300">{micLabel}</p>}
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-green-500/20 flex items-center justify-center">
+                                <Mic className="text-green-400" size={20} />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-semibold text-white">Microphone</h2>
+                                {micLabel && <p className="text-xs text-green-300 truncate max-w-[200px]">{micLabel}</p>}
+                            </div>
                         </div>
                         <StatusIcon status={micStatus} />
                     </div>
 
                     {/* Audio Level Meter */}
-                    <div className="mb-4">
-                        <p className="text-sm text-gray-400 mb-2">Audio Level:</p>
-                        <div className="h-4 bg-dark-800 rounded-full overflow-hidden">
+                    <div className="mb-6">
+                        <p className="text-sm text-gray-400 mb-2">Audio Level</p>
+                        <div className="h-3 bg-zinc-900 rounded-full overflow-hidden">
                             <div
-                                className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 transition-all duration-100"
-                                style={{ width: `${audioLevel}%` }}
+                                className="h-full transition-all duration-100"
+                                style={{
+                                    width: `${audioLevel}%`,
+                                    background: audioLevel > 70
+                                        ? 'linear-gradient(90deg, #10b981, #eab308, #ef4444)'
+                                        : audioLevel > 30
+                                            ? 'linear-gradient(90deg, #10b981, #eab308)'
+                                            : '#10b981'
+                                }}
                             />
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-gray-500 mt-2">
                             {audioLevel > 50 ? '🎤 Good audio level!' : audioLevel > 10 ? '🎤 Speak louder' : '🔇 No audio detected'}
                         </p>
                     </div>
 
                     {micStatus === 'error' && (
-                        <div className="bg-red-900/30 border border-red-500 rounded-lg p-3 mb-4">
-                            <p className="text-red-400 text-sm">{micError}</p>
+                        <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 mb-4">
+                            <p className="text-red-300 text-sm">{micError}</p>
                         </div>
                     )}
 
                     <button
                         onClick={testMicrophone}
-                        className="w-full py-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors mb-4"
+                        className="w-full py-2.5 bg-green-600/20 hover:bg-green-600/30 border border-green-600/30 text-green-400 rounded-lg transition-colors mb-4 flex items-center justify-center gap-2"
                     >
-                        Retry Microphone
+                        <RefreshCw size={16} /> Retry Microphone
                     </button>
 
                     {/* Speech Recognition Test */}
-                    <div className="border-t border-gray-700 pt-4">
-                        <p className="text-sm text-gray-400 mb-2">Test Speech Recognition:</p>
+                    <div className="border-t border-white/10 pt-4">
+                        <p className="text-sm text-gray-400 mb-3">Test Speech Recognition</p>
                         <button
                             onClick={testSpeechRecognition}
                             disabled={isTesting || micStatus !== 'success'}
-                            className={`w-full py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${isTesting
-                                ? 'bg-red-600 animate-pulse'
-                                : 'bg-purple-600 hover:bg-purple-500'
-                                } disabled:opacity-50`}
+                            className={`w-full py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 ${isTesting
+                                ? 'bg-red-600 text-white animate-pulse'
+                                : 'bg-accent-600/20 hover:bg-accent-600/30 border border-accent-600/30 text-accent-400'
+                                } disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                             {isTesting ? <MicOff size={18} /> : <Volume2 size={18} />}
                             {isTesting ? 'Listening...' : 'Test Speech'}
                         </button>
                         {speechTestResult && (
-                            <p className="text-sm mt-2 text-center">{speechTestResult}</p>
+                            <p className="text-sm mt-3 text-center p-3 bg-zinc-900/50 rounded-lg">{speechTestResult}</p>
                         )}
                     </div>
                 </div>
             </div>
 
             {/* Proceed Button */}
-            <div className="mt-8 text-center">
+            <div className="mt-10 text-center">
                 {allReady ? (
                     <>
                         <button
                             onClick={proceedToInterview}
-                            className="px-8 py-4 bg-green-600 hover:bg-green-500 rounded-xl text-xl font-semibold transition-all flex items-center gap-3 mx-auto"
+                            className="px-10 py-4 bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 rounded-xl text-xl font-semibold transition-all flex items-center gap-3 mx-auto shadow-lg shadow-green-500/30 hover:shadow-green-500/50 hover:scale-105"
                         >
-                            <Play size={24} />
+                            <Play size={24} fill="currentColor" />
                             Start Interview
                         </button>
                         {audioLevel < 10 && (
-                            <p className="text-yellow-400 text-sm mt-3">
-                                ⚠️ No audio detected - speak into your microphone to verify it works
+                            <p className="text-amber-400 text-sm mt-4 flex items-center justify-center gap-2">
+                                <AlertCircle size={16} />
+                                No audio detected - speak into your microphone to verify
                             </p>
                         )}
-                        <p className="text-gray-500 text-sm mt-3">
-                            💡 Speech test is optional. If your audio level meter moves when you speak, your mic is working!
+                        <p className="text-gray-500 text-sm mt-3 flex items-center justify-center gap-2">
+                            <Sparkles size={14} />
+                            Speech test is optional. If your audio level meter moves, you're good!
                         </p>
                     </>
                 ) : (
-                    <div className="text-yellow-400">
-                        <AlertCircle className="inline mr-2" />
+                    <div className="glass-panel-subtle inline-flex items-center gap-3 px-6 py-4 text-amber-400">
+                        <AlertCircle size={20} />
                         Please ensure camera and microphone are working before proceeding
                     </div>
                 )}
             </div>
 
             {/* Tips */}
-            <div className="mt-8 glass-panel p-6">
-                <h3 className="text-lg font-semibold mb-3">💡 Tips for Best Results</h3>
-                <ul className="space-y-2 text-gray-400 text-sm">
-                    <li>• Use Google Chrome for best speech recognition support</li>
-                    <li>• Ensure good lighting on your face</li>
-                    <li>• Use a quiet environment to avoid background noise</li>
-                    <li>• Position yourself so your face is clearly visible in the camera</li>
-                    <li>• Speak clearly and at a moderate pace</li>
-                </ul>
+            <div className="mt-10 glass-panel p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Lightbulb className="text-amber-400" size={20} />
+                    Tips for Best Results
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <TipItem text="Use Google Chrome for best speech recognition support" />
+                    <TipItem text="Ensure good lighting on your face" />
+                    <TipItem text="Use a quiet environment to avoid background noise" />
+                    <TipItem text="Position yourself so your face is clearly visible" />
+                    <TipItem text="Speak clearly and at a moderate pace" />
+                    <TipItem text="Look at the camera to maintain eye contact" />
+                </div>
             </div>
         </div>
     );
 };
+
+const TipItem = ({ text }) => (
+    <div className="flex items-start gap-3 text-gray-400 text-sm">
+        <CheckCircle size={16} className="text-green-400 mt-0.5 shrink-0" />
+        <span>{text}</span>
+    </div>
+);
 
 export default InterviewSetup;

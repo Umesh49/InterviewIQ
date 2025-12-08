@@ -10,6 +10,7 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 PERPLEXITY_API_KEY = os.getenv('PERPLEXITY_API_KEY')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 BYTEZ_API_KEY = os.getenv('BYTEZ_API_KEY')
+DEEPGRAM_API_KEY = os.getenv('DEEPGRAM_API_KEY')
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 

@@ -14,3 +14,4 @@ pillow
 colorama
 tqdm
 pdfminer.six
+deepgram-sdk>=3.0.0
