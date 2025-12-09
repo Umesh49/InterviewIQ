@@ -45,7 +45,7 @@ body {
   border-radius: 4px;
 }
 
-/* ======================= Components ======================= */
+/* === Components === */
 
 /* Card - Refined with subtle gradient border */
 .card {
@@ -184,7 +184,7 @@ body {
   padding: 0.75rem;
 }
 
-/* ======================= Badges ======================= */
+/* === Badges === */
 
 .badge {
   display: inline-flex;
@@ -223,7 +223,7 @@ body {
   color: #f87171;
 }
 
-/* ======================= Special Effects ======================= */
+/* === Special Effects === */
 
 /* Gradient text */
 .gradient-text {
@@ -248,7 +248,7 @@ body {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
 }
 
-/* ======================= Animations ======================= */
+/* === Animations === */
 
 @keyframes fadeIn {
   from {
@@ -308,7 +308,7 @@ body {
   animation: spin 1s linear infinite;
 }
 
-/* ======================= Icon Containers ======================= */
+/* === Icon Containers === */
 
 .icon-box {
   display: flex;

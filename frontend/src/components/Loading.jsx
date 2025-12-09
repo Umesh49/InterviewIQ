@@ -123,10 +123,12 @@ export const Skeleton = ({ className = '', variant = 'text' }) => {
     return (
         <motion.div
             className={`bg-zinc-800 ${variants[variant]} ${className}`}
+            role="status"
+            aria-label="Loading content"
+            aria-busy="true"
             animate={{ opacity: [0.5, 0.8, 0.5] }}
             transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-        />
-    );
+        />);
 };
 
 export default Loading;

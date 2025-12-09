@@ -35,10 +35,11 @@ export const getATSScore = async (resumeId, jobDescription) => {
 };
 
 // Interview endpoints
+const MIN_RESUME_ID_LENGTH = 10; // UUIDs or valid IDs are longer than 10 chars
+
 export const createInterview = async (resumeId, position, difficulty, experienceLevel = '0-2 years') => {
     const payload = { position, difficulty, experience_level: experienceLevel };
-    if (resumeId && resumeId.length > 10) payload.resume = resumeId;
-    const response = await api.post('/interviews/', payload);
+    if (resumeId && resumeId.length > MIN_RESUME_ID_LENGTH) payload.resume = resumeId; const response = await api.post('/interviews/', payload);
     return response.data;
 };
 
@@ -128,4 +129,13 @@ export const deleteAllData = async () => {
     return response.data;
 };
 
+// Body Language Analysis
+export const analyzeBodyLanguagePhotos = async (sessionId, photos) => {
+    const response = await api.post(`/interviews/${sessionId}/analyze_body_language/`, {
+        photos: photos
+    });
+    return response.data;
+};
+
 export default api;
+

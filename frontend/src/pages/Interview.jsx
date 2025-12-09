@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import api, { startInterview, submitResponse } from '../services/api';
-import useMediaPipe from '../hooks/useMediaPipe';
+import api, { startInterview, submitResponse, analyzeBodyLanguagePhotos } from '../services/api';
+import usePhotoCapture from '../hooks/usePhotoCapture';
 import useDeepgram from '../hooks/useDeepgram';
-import { Volume2, Mic, CheckCircle, Play, ArrowRight } from 'lucide-react';
+import { Volume2, Mic, CheckCircle, Play, ArrowRight, Camera } from 'lucide-react';
 import Loading from '../components/Loading';
 
 const Interview = () => {
@@ -42,7 +42,9 @@ const Interview = () => {
     const [error, setError] = useState(null);
     const [useDeepgramSTT, setUseDeepgramSTT] = useState(true); // Try Deepgram first
     const [audioLevel, setAudioLevel] = useState(0); // 0-100 audio level for wave animation
+    const [showCameraPreview, setShowCameraPreview] = useState(true); // Toggle camera preview
     const [needsResume, setNeedsResume] = useState(false); // True when session restored but needs user click
+    const [combinedTranscript, setCombinedTranscript] = useState(''); // Persisted transcript across providers
 
     // Transcript State (for fallback Web Speech API)
     const [transcript, setTranscript] = useState('');
@@ -72,19 +74,33 @@ const Interview = () => {
     const animationFrameRef = useRef(null);
     const isRecordingRef = useRef(false);  // To avoid stale closure in analyzeAudio
     const isSubmittingRef = useRef(false);  // To prevent double submits (React StrictMode)
+    const transcriptRef = useRef(null);  // For auto-scrolling transcript
 
-    // MediaPipe for body language
-    const { metrics, issueLog } = useMediaPipe(videoRef, isRecording);
+    // Photo Capture for body language (replaces MediaPipe video processing)
+    const { photos, metrics, getPhotosForSubmission, getIssueLog } = usePhotoCapture(videoRef, isRecording, 5000);
     const metricsBuffer = useRef({ eyeContact: [], posture: [], fidget: [], gaze: [] });
 
-    // ==================== INITIALIZATION ====================
+    //  INITIALIZATION 
 
     useEffect(() => {
+        let isMounted = true;  // Guard for React StrictMode double-mount
+
         const init = async () => {
             try {
                 const data = await startInterview(sessionId);
+                if (!isMounted) return;  // Ignore if component unmounted (StrictMode cleanup)
+
                 if (data.questions) {
-                    setQuestions(data.questions);
+                    // Deduplicate questions by ID (in case backend returns duplicates)
+                    const uniqueQuestions = data.questions.reduce((acc, q) => {
+                        if (!acc.find(existing => existing.id === q.id)) {
+                            acc.push(q);
+                        }
+                        return acc;
+                    }, []);
+
+                    console.log(`[Interview] Received ${data.questions.length} questions, ${uniqueQuestions.length} unique`);
+                    setQuestions(uniqueQuestions);
 
                     // Restore progress from sessionStorage if available
                     const savedIndex = sessionStorage.getItem(`interview_${sessionId}_index`);
@@ -92,7 +108,7 @@ const Interview = () => {
 
                     if (savedIndex !== null) {
                         const index = parseInt(savedIndex, 10);
-                        if (index >= 0 && index < data.questions.length) {
+                        if (index >= 0 && index < uniqueQuestions.length) {
                             setCurrentQIndex(index);
                             console.log('[Session] Restored to question', index + 1);
                         }
@@ -105,11 +121,14 @@ const Interview = () => {
                     }
                 }
             } catch (e) {
+                if (!isMounted) return;
                 console.error('Failed to load interview:', e);
                 setError('Failed to load interview. Please refresh.');
             }
         };
         init();
+
+        return () => { isMounted = false; };  // Cleanup for StrictMode
 
         // Setup Speech Recognition
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
@@ -226,17 +245,17 @@ const Interview = () => {
         return () => clearInterval(interval);
     }, [isRecording]);
 
-    // Collect body language metrics
+    // Auto-scroll transcript to bottom when new text arrives
     useEffect(() => {
-        if (isRecording && metrics) {
-            metricsBuffer.current.eyeContact.push(metrics.eyeContact);
-            metricsBuffer.current.posture.push(metrics.posture === 'Good' ? 1 : 0);
-            metricsBuffer.current.fidget.push(metrics.fidgetScore);
-            metricsBuffer.current.gaze.push(metrics.gazeDirection);
+        if (transcriptRef.current) {
+            transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
         }
-    }, [metrics, isRecording]);
+    }, [deepgramTranscript, transcript, deepgramInterim, interimTranscript, combinedTranscript]);
 
-    // ==================== AUDIO ANALYSIS ====================
+    // Photo capture is handled automatically by usePhotoCapture hook
+    // No need to manually buffer metrics like with MediaPipe
+
+    //  AUDIO ANALYSIS 
 
     const initAudioAnalysis = async () => {
         if (audioContextRef.current) return;
@@ -362,6 +381,44 @@ const Interview = () => {
         });
 
         return counts;
+    };
+
+    // Handle STT provider switch - preserve transcript
+    const handleSTTSwitch = async (toDeepgram) => {
+        if (toDeepgram === useDeepgramSTT) return; // No change
+
+        // Save current transcript from active provider
+        const currentText = useDeepgramSTT ? deepgramTranscript : transcript;
+        setCombinedTranscript(prev => (prev + ' ' + currentText).trim());
+
+        // Stop current provider
+        if (useDeepgramSTT) {
+            stopDeepgram();
+        } else if (recognitionRef.current) {
+            try { recognitionRef.current.stop(); } catch (e) { }
+        }
+
+        // Switch provider
+        setUseDeepgramSTT(toDeepgram);
+
+        // Start new provider if still recording
+        if (isRecording) {
+            if (toDeepgram) {
+                try {
+                    resetDeepgram();
+                    await startDeepgram();
+                    console.log('[STT] Switched to Deepgram');
+                } catch (e) {
+                    console.warn('[STT] Deepgram start failed:', e);
+                }
+            } else {
+                setTranscript(''); // Clear Chrome transcript for fresh start
+                if (recognitionRef.current) {
+                    try { recognitionRef.current.start(); } catch (e) { }
+                }
+                console.log('[STT] Switched to Chrome');
+            }
+        }
     };
 
     const handleStartInterview = async () => {
@@ -493,8 +550,9 @@ const Interview = () => {
             cancelAnimationFrame(animationFrameRef.current);
         }
 
-        // Get final transcript from whichever STT was used
-        const finalTranscript = (useDeepgramSTT ? deepgramTranscript : transcript).trim();
+        // Get final transcript - combine persisted transcript with current active provider
+        const currentProviderText = (useDeepgramSTT ? deepgramTranscript : transcript).trim();
+        const finalTranscript = (combinedTranscript + ' ' + currentProviderText).trim();
         const speakingDuration = (Date.now() - voiceMetricsRef.current.startTime) / 1000;
         const wordCount = finalTranscript.split(/\s+/).filter(w => w).length;
         const wordsPerMinute = speakingDuration > 0 ? Math.round((wordCount / speakingDuration) * 60) : 0;
@@ -515,33 +573,43 @@ const Interview = () => {
 
         console.log('[Voice Metrics]', voiceData);
 
-        // Calculate body language metrics
-        const count = metricsBuffer.current.eyeContact.length || 1;
-        const avgEye = metricsBuffer.current.eyeContact.reduce((a, b) => a + b, 0) / count;
-        const avgPosture = metricsBuffer.current.posture.reduce((a, b) => a + b, 0) / count;
-        const avgFidget = metricsBuffer.current.fidget.reduce((a, b) => a + b, 0) / count;
-        const gazeCounts = metricsBuffer.current.gaze.reduce((acc, curr) => {
-            acc[curr] = (acc[curr] || 0) + 1;
-            return acc;
-        }, {});
+        // Get photos for body language analysis
+        const capturedPhotos = getPhotosForSubmission();
+        console.log(`[Photo Capture] ${capturedPhotos.length} photos captured for analysis`);
 
         const currentQuestion = questions[currentQIndex];
         if (!currentQuestion) return;
 
         try {
+            // First, analyze photos for body language (if we have any)
+            let photoAnalysis = {};
+            if (capturedPhotos.length > 0) {
+                try {
+                    console.log('[Photo Analysis] Sending photos to backend for analysis...');
+                    photoAnalysis = await analyzeBodyLanguagePhotos(sessionId, capturedPhotos);
+                    console.log('[Photo Analysis] Result:', photoAnalysis);
+                } catch (photoErr) {
+                    console.warn('[Photo Analysis] Failed, using defaults:', photoErr);
+                    photoAnalysis = { posture_score: 70, eye_contact_score: 70, fallback: true };
+                }
+            }
+
             const data = await submitResponse(
                 sessionId,
                 currentQuestion.id,
                 finalTranscript,
                 null,
                 {
-                    eyeContact: avgEye,
-                    posture: avgPosture > 0.8 ? 'Good' : 'Leaning',
-                    fidgetScore: avgFidget,
-                    gazeDistribution: gazeCounts,
+                    // Photo-based body language metrics
+                    photosCaptured: capturedPhotos.length,
+                    photoAnalysis: photoAnalysis,
+                    eyeContact: (photoAnalysis.eye_contact_score || 70) / 100,
+                    posture: (photoAnalysis.posture_score || 70) >= 70 ? 'Good' : 'Needs Improvement',
+                    fidgetScore: 0,  // Not applicable for photo-based analysis
+                    gazeDistribution: {},  // Not applicable for photo-based analysis
                     voiceMetrics: voiceData
                 },
-                issueLog
+                getIssueLog()
             );
 
             if (data.new_question) {
@@ -577,7 +645,7 @@ const Interview = () => {
         }
     }, [currentQIndex]);
 
-    // ==================== HELPERS ====================
+    //  HELPERS 
 
     const formatTime = (s) => {
         const mins = Math.floor(s / 60).toString().padStart(2, '0');
@@ -585,7 +653,7 @@ const Interview = () => {
         return `${mins}:${secs}`;
     };
 
-    // ==================== RENDER ====================
+    //  RENDER 
 
     if (error) {
         return (
@@ -604,7 +672,9 @@ const Interview = () => {
     }
 
     const currentQuestion = questions[currentQIndex];
-    const activeTranscript = useDeepgramSTT ? deepgramTranscript : transcript;
+    // Combine persisted transcript with current active provider transcript
+    const currentProviderTranscript = useDeepgramSTT ? deepgramTranscript : transcript;
+    const activeTranscript = (combinedTranscript + ' ' + currentProviderTranscript).trim();
     const activeInterim = useDeepgramSTT ? deepgramInterim : interimTranscript;
 
     // Deepgram Aura TTS with Indian accent
@@ -676,12 +746,45 @@ const Interview = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 flex relative overflow-hidden">
-            {/* Ambient Background Effects */}
+        <div className="min-h-screen bg-[#0c0c0f] flex relative overflow-hidden">
+            {/* Animated Background */}
             <div className="absolute inset-0 z-0 pointer-events-none">
-                <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-blue-500/5 rounded-full blur-[150px]" />
-                <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] bg-purple-500/5 rounded-full blur-[120px]" />
+                {/* Base gradient */}
+                <div className="absolute inset-0 bg-gradient-to-b from-[#0c0c0f] via-[#111118] to-[#0c0c0f]" />
+
+                {/* Subtle grid */}
+                <div
+                    className="absolute inset-0 opacity-[0.015]"
+                    style={{
+                        backgroundImage: `linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                                          linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)`,
+                        backgroundSize: '64px 64px'
+                    }}
+                />
+
+                {/* Top accent glow */}
+                <div
+                    className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px]"
+                    style={{
+                        background: 'radial-gradient(ellipse at center, rgba(59, 130, 246, 0.06) 0%, transparent 70%)'
+                    }}
+                />
+
+                {/* Side accent */}
+                <div
+                    className="absolute top-1/3 right-0 w-[300px] h-[400px]"
+                    style={{
+                        background: 'radial-gradient(ellipse at right, rgba(139, 92, 246, 0.04) 0%, transparent 70%)'
+                    }}
+                />
             </div>
+
+            {/* Hidden video element for camera stream (used by preview box) */}
+            <video
+                ref={videoRef}
+                className="hidden"
+                autoPlay muted playsInline
+            />
 
             {/* Recording Indicator - Top Left */}
             {isRecording && (
@@ -691,15 +794,38 @@ const Interview = () => {
                 </div>
             )}
 
-            {/* Camera Background - Subtle */}
-            <div className="absolute inset-0 z-0">
-                <video
-                    ref={videoRef}
-                    className={`w-full h-full object-cover ${!hasStarted ? 'opacity-10 blur-lg' : 'opacity-15'} transition-all transform scale-x-[-1]`}
-                    autoPlay muted playsInline
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-zinc-950/80" />
-            </div>
+            {/* STT Provider Toggle - Top Left below recording indicator */}
+            {hasStarted && (
+                <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="absolute top-16 left-4 z-40"
+                >
+                    <div className="px-3 py-2 bg-zinc-900/80 backdrop-blur-sm border border-zinc-700/50 rounded-xl">
+                        <p className="text-xs text-zinc-500 mb-1.5">Speech Engine</p>
+                        <div className="flex gap-1">
+                            <button
+                                onClick={() => handleSTTSwitch(true)}
+                                className={`px-2.5 py-1 text-xs rounded-lg transition-all ${useDeepgramSTT
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                                    }`}
+                            >
+                                Deepgram
+                            </button>
+                            <button
+                                onClick={() => handleSTTSwitch(false)}
+                                className={`px-2.5 py-1 text-xs rounded-lg transition-all ${!useDeepgramSTT
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                                    }`}
+                            >
+                                Chrome
+                            </button>
+                        </div>
+                    </div>
+                </motion.div>
+            )}
 
             {/* Start Overlay */}
             <AnimatePresence>
@@ -944,6 +1070,43 @@ const Interview = () => {
                     transition={{ delay: 0.3, type: 'spring', stiffness: 100 }}
                     className="hidden md:flex relative z-10 w-72 lg:w-80 xl:w-96 bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-800/50 flex-col h-screen"
                 >
+                    {/* Camera Preview Section */}
+                    <div className="border-b border-zinc-800/50">
+                        {showCameraPreview ? (
+                            <div className="relative">
+                                <video
+                                    ref={(el) => {
+                                        if (el && videoRef.current?.srcObject) {
+                                            el.srcObject = videoRef.current.srcObject;
+                                        }
+                                    }}
+                                    className="w-full h-40 lg:h-48 object-cover transform scale-x-[-1]"
+                                    autoPlay muted playsInline
+                                />
+                                <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 rounded text-xs text-white flex items-center gap-1">
+                                    <Camera size={12} />
+                                    <span>You</span>
+                                </div>
+                                <button
+                                    onClick={() => setShowCameraPreview(false)}
+                                    className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-black/80 rounded-lg text-white transition-colors"
+                                    title="Hide preview"
+                                >
+                                    <span className="text-xs">✕</span>
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => setShowCameraPreview(true)}
+                                className="w-full py-4 bg-zinc-800/50 hover:bg-zinc-800 transition-all flex flex-col items-center gap-1 text-zinc-400 hover:text-white"
+                                title="Show camera preview"
+                            >
+                                <Camera size={24} />
+                                <span className="text-xs">Show Camera</span>
+                            </button>
+                        )}
+                    </div>
+
                     {/* Panel Header */}
                     <div className="p-5 border-b border-zinc-800/50 bg-gradient-to-r from-zinc-900 to-zinc-800/50">
                         <div className="flex items-center gap-3">
@@ -966,7 +1129,7 @@ const Interview = () => {
                     </div>
 
                     {/* Transcript Content */}
-                    <div className="flex-1 overflow-y-auto p-5">
+                    <div ref={transcriptRef} className="flex-1 overflow-y-auto p-5">
                         {activeTranscript || activeInterim ? (
                             <div className="space-y-2">
                                 <p className="text-white leading-relaxed text-lg">
@@ -990,14 +1153,14 @@ const Interview = () => {
                         )}
                     </div>
 
-                    {/* Panel Footer - Stats */}
-                    {activeTranscript && (
+                    {/* Panel Footer - Stats (always visible during recording) */}
+                    {(isRecording || activeTranscript) && (
                         <div className="p-5 border-t border-zinc-800/50 bg-gradient-to-r from-zinc-900 to-zinc-800/50">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="p-3 bg-zinc-800/30 rounded-xl text-center">
                                     <p className="text-xs text-zinc-500 mb-1">Words</p>
                                     <p className="text-xl font-bold text-white">
-                                        {activeTranscript.split(/\s+/).filter(w => w).length}
+                                        {activeTranscript ? activeTranscript.split(/\s+/).filter(w => w).length : 0}
                                     </p>
                                 </div>
                                 <div className="p-3 bg-zinc-800/30 rounded-xl text-center">

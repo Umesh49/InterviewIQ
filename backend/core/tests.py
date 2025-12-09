@@ -1,5 +1,5 @@
 """
-Comprehensive tests for the Fair AI Interview Platform.
+Comprehensive tests for the InterviewIQ.
 Tests cover models, API endpoints, and service integration.
 """
 import uuid
@@ -205,7 +205,8 @@ class InterviewSessionAPITests(APITestCase):
             'student': str(self.student.id),
             'resume': str(self.resume.id),
             'position': 'Backend Developer',
-            'difficulty': 'Medium'
+            'difficulty': 'Medium',
+            'experience_level': '0-2 years'
         })
         
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)

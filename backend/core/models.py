@@ -69,7 +69,6 @@ class InterviewResponse(models.Model):
     body_language_metadata = models.JSONField(default=dict) # Stores fidget, gaze, voice_metrics, etc.
     
     # Video & Time-series Data
-    # Video & Time-series Data
     video = models.FileField(upload_to='interview_videos/', null=True, blank=True)
     metrics_timeline = models.JSONField(default=list, blank=True) # [{time: 1.2, type: 'posture', msg: 'Slouching'}]
     

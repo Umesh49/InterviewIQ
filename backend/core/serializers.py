@@ -28,7 +28,15 @@ class InterviewResponseSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = InterviewResponse
-        fields = '__all__'
+        fields = [
+            'id', 'question', 'question_text', 'audio_file', 'transcript',
+            'fluency_score', 'sentiment_score', 'grammar_errors', 'filler_word_count',
+            'eye_contact_score', 'posture_score', 'body_language_metadata',
+            'video', 'metrics_timeline',
+            'feedback_text', 'detailed_positives', 'detailed_improvements', 'improvement_tips',
+            'created_at'
+        ]
+        read_only_fields = ['id', 'question_text', 'created_at']
     
     def get_question_text(self, obj):
         return obj.question.text if obj.question else None

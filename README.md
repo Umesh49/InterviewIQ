@@ -83,6 +83,13 @@ An intelligent, AI-powered mock interview platform designed to help job seekers 
 
 **Automatic Failover**: Seamless switching between providers when one fails.
 
+### 🔐 Security Features
+- **Rate Limiting**: 100 req/hour (anonymous), 1000 req/hour (authenticated)
+- **Input Sanitization**: HTML stripping, entity escaping, length limits
+- **File Validation**: MIME type checking, magic byte validation, size limits
+- **Custom Exception Handler**: Consistent error responses, no stack trace leaks
+- **Standard API Responses**: `{success, message, data/errors}` format
+
 ---
 
 ## 🏗️ Tech Stack
@@ -117,44 +124,51 @@ An intelligent, AI-powered mock interview platform designed to help job seekers 
 ```
 fair_ai_interview_app/
 ├── backend/
-│   ├── config/              # Django settings & configuration
-│   │   ├── settings.py      # Main settings
-│   │   ├── urls.py          # Root URL configuration
-│   │   └── wsgi.py          # WSGI entry point
-│   ├── core/                # Main application
-│   │   ├── models.py        # Database models
-│   │   ├── views.py         # API endpoints (ViewSets)
-│   │   ├── services.py      # Business logic & AI integration
-│   │   ├── serializers.py   # Data serialization
-│   │   └── urls.py          # API routes
-│   ├── media/               # Uploaded files (resumes)
-│   ├── requirements.txt     # Python dependencies
-│   └── manage.py            # Django CLI
+│   ├── config/                  # Django settings & configuration
+│   │   ├── settings.py          # Main settings (rate limiting, etc.)
+│   │   ├── urls.py              # Root URL configuration
+│   │   └── wsgi.py              # WSGI entry point
+│   ├── core/                    # Main application
+│   │   ├── models.py            # Database models
+│   │   ├── serializers.py       # Data serialization
+│   │   ├── admin.py             # Django admin configuration
+│   │   ├── utils.py             # Sanitization, validation, API helpers
+│   │   ├── views/               # Modular ViewSets
+│   │   │   ├── __init__.py
+│   │   │   ├── student_views.py
+│   │   │   ├── resume_views.py
+│   │   │   └── interview_views.py
+│   │   └── services/            # Business logic & AI
+│   │       ├── __init__.py
+│   │       ├── ai_service.py           # Multi-provider AI calls
+│   │       ├── interview_service.py    # Question generation & analysis
+│   │       ├── helper_functions.py     # STAR detection, metrics
+│   │       ├── voice_service.py        # Deepgram TTS
+│   │       └── analyze_body_language.py # Gemini Vision
+│   ├── media/                   # Uploaded files (resumes)
+│   ├── requirements.txt         # Python dependencies
+│   └── manage.py                # Django CLI
 │
 ├── frontend/
-│   ├── public/              # Static assets (logo)
+│   ├── public/                  # Static assets (logo)
 │   ├── src/
-│   │   ├── components/      # Reusable UI components
-│   │   │   ├── Header.jsx         # Navigation with Features dropdown
-│   │   │   ├── Footer.jsx         # Footer with quick links
-│   │   │   ├── Loading.jsx        # Animated loading component
-│   │   │   ├── IconSelect.jsx     # Custom dropdown with icons
+│   │   ├── components/          # Reusable UI components
+│   │   │   ├── Header.jsx
+│   │   │   ├── Footer.jsx
+│   │   │   ├── Loading.jsx
 │   │   │   └── AnimatedBackground.jsx
-│   │   ├── pages/           # Main application pages
-│   │   │   ├── Home.jsx           # Landing page
-│   │   │   ├── Dashboard.jsx      # Main dashboard (2x2 grid on mobile)
-│   │   │   ├── InterviewSetup.jsx # Interview configuration
-│   │   │   ├── Interview.jsx      # Main interview (animated)
-│   │   │   ├── Result.jsx         # Performance results
-│   │   │   ├── Analytics.jsx      # Detailed analytics
-│   │   │   ├── ATSScanner.jsx     # Resume ATS checker
-│   │   │   └── ...more
-│   │   ├── hooks/           # Custom React hooks
-│   │   │   ├── useDeepgram.js     # Deepgram STT integration
-│   │   │   └── useMediaPipe.js    # Body language tracking
-│   │   └── services/        # API integration
-│   ├── index.html           # Entry HTML
-│   └── package.json         # npm dependencies
+│   │   ├── pages/               # Main application pages
+│   │   │   ├── Home.jsx
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── Interview.jsx
+│   │   │   ├── Result.jsx
+│   │   │   └── Analytics.jsx
+│   │   ├── hooks/               # Custom React hooks
+│   │   │   ├── useDeepgram.js   # Speech-to-text
+│   │   │   └── usePhotoCapture.js # Body language photos
+│   │   └── services/            # API integration
+│   ├── index.html
+│   └── package.json
 ```
 
 ---

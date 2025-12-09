@@ -1,22 +1,31 @@
+"""
+Interview Session ViewSet - Main interview lifecycle management.
+Handles session creation, question generation, response submission, and reporting.
+"""
 import logging
+import json
+import random
+import difflib
+import traceback
+
+from django.conf import settings
+from django.shortcuts import get_object_or_404
+from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from django.shortcuts import get_object_or_404
-from django.conf import settings
-from .models import Student, Resume, InterviewSession, Question, InterviewResponse
-from .serializers import (
-    StudentSerializer, ResumeSerializer, InterviewSessionSerializer, 
-    QuestionSerializer, InterviewResponseSerializer
+
+from ..models import InterviewSession, Question, InterviewResponse
+from ..serializers import (
+    InterviewSessionSerializer, QuestionSerializer, InterviewResponseSerializer
 )
-from .services import (
-    ResumeParserService, InterviewEngine,
-    get_pre_interview_tips, detect_performance_trend, 
-    generate_beginner_encouragement
+from ..services import (
+    InterviewEngine, get_pre_interview_tips, 
+    detect_performance_trend, generate_beginner_encouragement,
+    VoiceService, analyze_multiple_photos
 )
-from .voice_service import VoiceService
-from django.http import HttpResponse
+from .student_views import get_or_create_default_student
 
 logger = logging.getLogger(__name__)
 
@@ -35,300 +44,12 @@ except Exception:
     HAS_GEMINI = False
     genai = None
 
+# Initialize voice service
 voice_service = None
 try:
     voice_service = VoiceService()
 except Exception as e:
     logger.error(f"Failed to initialize VoiceService: {e}")
-
-
-
-def get_or_create_default_student():
-    """
-    Get or create a default anonymous student for all users.
-    No login required - everyone uses the same student account.
-    """
-    default_student, created = Student.objects.get_or_create(
-        username='anonymous_user',
-        defaults={
-            'email': 'anonymous@mockinterview.com',
-            'first_name': 'Anonymous',
-            'last_name': 'User'
-        }
-    )
-    if created:
-        logger.info("Created default anonymous student")
-    return default_student
-
-
-class StudentViewSet(viewsets.ModelViewSet):
-    """
-    Student management - simplified for no-login flow.
-    All users share the anonymous_user account.
-    """
-    queryset = Student.objects.all()
-    serializer_class = StudentSerializer
-
-    @action(detail=False, methods=['delete'])
-    def delete_all_data(self, request):
-        """
-        HARD DELETE all user data for privacy compliance.
-        This permanently removes:
-        - All resumes and their files
-        - All interview sessions
-        - All interview responses
-        """
-        try:
-            from django.db import transaction
-            import os
-            
-            with transaction.atomic():
-                # Delete resume files from disk
-                resumes = Resume.objects.all()
-                for resume in resumes:
-                    if resume.file and os.path.exists(resume.file.path):
-                        try:
-                            os.remove(resume.file.path)
-                            logger.info(f"Deleted resume file: {resume.file.path}")
-                        except Exception as e:
-                            logger.warning(f"Could not delete file {resume.file.path}: {e}")
-                
-                # Hard delete all interview responses
-                response_count = InterviewResponse.objects.all().delete()[0]
-                
-                # Hard delete all interview sessions
-                session_count = InterviewSession.objects.all().delete()[0]
-                
-                # Hard delete all resumes
-                resume_count = resumes.delete()[0]
-                
-                logger.info(f"Hard deleted: {resume_count} resumes, {session_count} sessions, {response_count} responses")
-                
-                return Response({
-                    'success': True,
-                    'message': 'All data permanently deleted',
-                    'deleted': {
-                        'resumes': resume_count,
-                        'sessions': session_count,
-                        'responses': response_count
-                    }
-                }, status=status.HTTP_200_OK)
-                
-        except Exception as e:
-            logger.exception('Error deleting all data: %s', e)
-            return Response({
-                'error': str(e),
-                'detail': 'Failed to delete data'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class ResumeViewSet(viewsets.ModelViewSet):
-    """
-    Resume upload and parsing.
-    No authentication required - all resumes attached to default student.
-    """
-    queryset = Resume.objects.all()
-    serializer_class = ResumeSerializer
-    parser_classes = (MultiPartParser, FormParser)
-
-    def get_queryset(self):
-        """Return all resumes (no auth filtering)"""
-        return Resume.objects.all().order_by('-created_at')
-
-    def create(self, request, *args, **kwargs):
-        """
-        Upload and parse resume without authentication.
-        Automatically attaches to default anonymous student.
-        """
-        try:
-            logger.info('Resume upload - FILES: %s, DATA: %s', 
-                       list(request.FILES.keys()), list(request.data.keys()))
-        except Exception:
-            logger.debug('Could not list request keys')
-
-        # Validate file presence
-        if 'file' not in request.FILES:
-            return Response({
-                'detail': 'No file uploaded. Please attach a PDF resume.',
-                'field': 'file'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Get default student
-        default_student = get_or_create_default_student()
-
-        # Prepare data with default student
-        data = request.data.copy()
-        data['student'] = str(default_student.id)
-
-        serializer = self.get_serializer(data=data)
-        if not serializer.is_valid():
-            logger.warning('Resume validation failed: %s', serializer.errors)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            # Save resume
-            resume = serializer.save(student=default_student)
-            
-            # Parse resume
-            logger.info(f"Parsing resume: {resume.file.path}")
-            parsed_data = ResumeParserService.parse_resume(resume.file.path)
-            resume.parsed_content = parsed_data
-            resume.save()
-            
-            logger.info(f"Resume parsed successfully - Skills: {len(parsed_data.get('skills', []))}")
-            
-            headers = self.get_success_headers(serializer.data)
-            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-            
-        except Exception as e:
-            logger.exception('Error saving or parsing resume: %s', e)
-            return Response({
-                'detail': f'Failed to save or parse resume: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def destroy(self, request, *args, **kwargs):
-        """
-        Delete a resume and its associated file.
-        
-        Permanently removes:
-        - Resume database record
-        - Uploaded PDF file from storage
-        - Parsed content data
-        
-        This is irreversible. Sessions using this resume will still work
-        but won't have resume context for new question generation.
-        """
-        try:
-            resume = self.get_object()
-            resume_id = resume.id
-            
-            # Delete the physical file if it exists
-            if resume.file:
-                try:
-                    import os
-                    if os.path.exists(resume.file.path):
-                        os.remove(resume.file.path)
-                        logger.info(f"Deleted resume file: {resume.file.path}")
-                except Exception as file_error:
-                    logger.warning(f"Could not delete resume file: {file_error}")
-            
-            # Delete the database record
-            resume.delete()
-            
-            logger.info(f"Deleted resume {resume_id}")
-            return Response({
-                'status': 'Resume deleted successfully',
-                'id': str(resume_id)
-            }, status=status.HTTP_200_OK)
-            
-        except Exception as e:
-            logger.exception('Error deleting resume: %s', e)
-            return Response({
-                'error': str(e),
-                'detail': 'Failed to delete resume'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @action(detail=True, methods=['post'], parser_classes=[JSONParser])
-    def ats_score(self, request, pk=None):
-        """
-        ATS Scanner: Analyze resume against job description.
-        
-        Compares resume content with job description to calculate:
-        - Overall ATS compatibility score (0-100)
-        - Matching keywords found
-        - Missing keywords to add
-        - Specific suggestions for improvement
-        
-        Payload:
-        - job_description: str (the JD text to match against)
-        
-        Returns:
-        - score: int (0-100)
-        - matching_keywords: list
-        - missing_keywords: list
-        - suggestions: list
-        """
-        try:
-            resume = self.get_object()
-            job_description = request.data.get('job_description', '').strip()
-            
-            if not job_description:
-                return Response({
-                    'error': 'job_description is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Get resume content
-            parsed = resume.parsed_content or {}
-            resume_skills = set(s.lower() for s in parsed.get('skills', []))
-            resume_text = ' '.join([
-                parsed.get('summary', ''),
-                ' '.join(parsed.get('skills', [])),
-                ' '.join([exp.get('description', '') for exp in parsed.get('experience', [])]),
-                ' '.join([proj.get('description', '') for proj in parsed.get('projects', [])])
-            ]).lower()
-            
-            # Extract keywords from JD (simple extraction)
-            import re
-            jd_lower = job_description.lower()
-            
-            # Common tech keywords to look for
-            tech_keywords = [
-                'python', 'java', 'javascript', 'react', 'node', 'sql', 'aws', 'docker',
-                'kubernetes', 'git', 'agile', 'scrum', 'api', 'rest', 'graphql', 'mongodb',
-                'postgresql', 'redis', 'machine learning', 'ai', 'data science', 'tensorflow',
-                'django', 'flask', 'spring', 'angular', 'vue', 'typescript', 'c++', 'go',
-                'rust', 'linux', 'devops', 'ci/cd', 'testing', 'tdd', 'microservices'
-            ]
-            
-            # Soft skills
-            soft_keywords = [
-                'communication', 'leadership', 'teamwork', 'problem solving', 'analytical',
-                'collaboration', 'project management', 'time management', 'critical thinking'
-            ]
-            
-            all_keywords = tech_keywords + soft_keywords
-            
-            # Find keywords in JD
-            jd_keywords = [kw for kw in all_keywords if kw in jd_lower]
-            
-            # Find matches and misses
-            matching = [kw for kw in jd_keywords if kw in resume_text]
-            missing = [kw for kw in jd_keywords if kw not in resume_text]
-            
-            # Calculate score
-            if len(jd_keywords) > 0:
-                score = int((len(matching) / len(jd_keywords)) * 100)
-            else:
-                score = 50  # Default if no keywords found
-            
-            # Generate suggestions
-            suggestions = []
-            if missing:
-                suggestions.append(f"Add these keywords to your resume: {', '.join(missing[:5])}")
-            if score < 60:
-                suggestions.append("Consider tailoring your resume more specifically to this job description")
-            if score >= 80:
-                suggestions.append("Great match! Your resume aligns well with this job.")
-            if not parsed.get('skills'):
-                suggestions.append("Add a dedicated Skills section to improve ATS scanning")
-            
-            logger.info(f"ATS score for resume {resume.id}: {score}%")
-            
-            return Response({
-                'score': score,
-                'matching_keywords': matching,
-                'missing_keywords': missing,
-                'suggestions': suggestions,
-                'total_jd_keywords': len(jd_keywords),
-                'matched_count': len(matching)
-            })
-            
-        except Exception as e:
-            logger.exception('Error calculating ATS score: %s', e)
-            return Response({
-                'error': str(e),
-                'detail': 'Failed to analyze resume'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class InterviewSessionViewSet(viewsets.ModelViewSet):
@@ -455,10 +176,10 @@ class InterviewSessionViewSet(viewsets.ModelViewSet):
             # Fallback tips
             return Response({
                 "preparation": [
-                    "📋 Have your resume ready to reference",
-                    "💧 Keep water nearby - dry mouth is normal when nervous",
-                    "😊 Smile before you start - it helps you sound confident",
-                    "⏸️ It's okay to pause and think before answering"
+                    "[TIP] Have your resume ready to reference",
+                    "[TIP] Keep water nearby - dry mouth is normal when nervous",
+                    "[TIP] Smile before you start - it helps you sound confident",
+                    "[TIP] It's okay to pause and think before answering"
                 ],
                 "star_method": {
                     "explanation": "Structure answers with STAR: Situation, Task, Action, Result",
@@ -468,14 +189,14 @@ class InterviewSessionViewSet(viewsets.ModelViewSet):
                     "R": "Result - Outcome with numbers if possible (1 sentence)"
                 },
                 "common_mistakes": [
-                    "❌ Don't say 'I don't know' - try 'I haven't worked with that, but here's how I'd approach it'",
-                    "❌ Don't memorize answers - practice key points and speak naturally",
-                    "❌ Don't rush - interviewers prefer thoughtful slower answers"
+                    "[X] Don't say 'I don't know' - try 'I haven't worked with that, but here's how I'd approach it'",
+                    "[X] Don't memorize answers - practice key points and speak naturally",
+                    "[X] Don't rush - interviewers prefer thoughtful slower answers"
                 ],
                 "mindset": [
-                    "🎯 This is PRACTICE - mistakes help you improve",
-                    "💪 Even senior engineers get nervous in interviews",
-                    "📈 Your first answer will be rough - that's normal!"
+                    "[!] This is PRACTICE - mistakes help you improve",
+                    "[!] Even senior engineers get nervous in interviews",
+                    "[!] Your first answer will be rough - that's normal!"
                 ]
             })
 
@@ -500,106 +221,132 @@ class InterviewSessionViewSet(viewsets.ModelViewSet):
         - status: "Interview Started"
         - questions: List of Question objects with category, order, coaching_tip
         """
+        from django.db import transaction
+        
         try:
-            session = self.get_object()
+            # Use select_for_update to prevent race conditions when two requests come in simultaneously
+            with transaction.atomic():
+                session = InterviewSession.objects.select_for_update().get(pk=pk)
             
-            if session.status == 'Started':
-                # Check if questions exist
-                questions = Question.objects.filter(session=session).order_by('order')
-                if questions.exists():
-                    logger.warning(f"Session {session.id} already started with {questions.count()} questions")
-                    return Response({
-                        'status': 'Interview Already Started',
-                        'questions': QuestionSerializer(questions, many=True).data
-                    })
-                else:
-                    # Session marked started but no questions (AI failed) - reset and retry
-                    logger.warning(f"Session {session.id} marked started but has 0 questions - regenerating")
-                    session.status = 'Created'
-                    session.save()
+                if session.status == 'Started':
+                    # Check if questions exist
+                    questions = Question.objects.filter(session=session).order_by('order')
+                    if questions.exists():
+                        logger.warning(f"Session {session.id} already started with {questions.count()} questions")
+                        return Response({
+                            'status': 'Interview Already Started',
+                            'questions': QuestionSerializer(questions, many=True).data
+                        })
+                    else:
+                        # Session marked started but no questions (AI failed) - reset and retry
+                        logger.warning(f"Session {session.id} marked started but has 0 questions - regenerating")
+                        session.status = 'Created'
+                        session.save()
             
-            logger.info(f"Starting interview for session {session.id}")
-            
-            # Generate Questions with progressive ordering
-            resume_data = session.resume.parsed_content if session.resume else {}
-            logger.info(f"Resume data available: {bool(resume_data)}, Skills: {len(resume_data.get('skills', []))}")
-            
-            # Fetch recently asked questions for this student to prevent repetition
-            # Get last 50 questions from previous sessions
-            previous_questions = Question.objects.filter(
-                session__student=session.student
-            ).exclude(
-                session=session # Don't exclude questions if we are regenerating for THIS session (though status check prevents that)
-            ).order_by('-created_at')[:50].values_list('text', flat=True)
-            
-            excluded_questions = list(previous_questions)
-            logger.info(f"Found {len(excluded_questions)} previously asked questions to exclude")
+                logger.info(f"Starting interview for session {session.id}")
+                
+                # Generate Questions with progressive ordering
+                resume_data = session.resume.parsed_content if session.resume else {}
+                logger.info(f"Resume data available: {bool(resume_data)}, Skills: {len(resume_data.get('skills', []))}")
+                
+                # Fetch recently asked questions for this student to prevent repetition
+                # Get last 50 questions from previous sessions
+                previous_questions = Question.objects.filter(
+                    session__student=session.student
+                ).exclude(
+                    session=session # Don't exclude questions if we are regenerating for THIS session (though status check prevents that)
+                ).order_by('-created_at')[:50].values_list('text', flat=True)
+                
+                excluded_questions = list(previous_questions)
+                logger.info(f"Found {len(excluded_questions)} previously asked questions to exclude")
 
-            questions_data = InterviewEngine.generate_questions(
-                resume_data=resume_data,
-                position=session.position,
-                difficulty=session.difficulty,
-                dialect=session.dialect,
-                experience_level=session.experience_level,
-                excluded_questions=excluded_questions
-            )
-            
-            logger.info(f"Generated {len(questions_data)} questions")
-            
-            # Deduplicate questions (Fuzzy Matching)
-            import difflib
-            unique_questions = []
-            
-            for q in questions_data:
-                is_duplicate = False
-                new_text = q['text'].lower().strip()
-                
-                for existing in unique_questions:
-                    existing_text = existing['text'].lower().strip()
-                    
-                    # Check similarity
-                    similarity = difflib.SequenceMatcher(None, new_text, existing_text).ratio()
-                    if similarity > 0.8:  # 80% similar
-                        is_duplicate = True
-                        logger.info(f"Duplicate/Similar question skipped: '{q['text']}' vs '{existing['text']}' ({similarity:.2f})")
-                        break
-                
-                if not is_duplicate:
-                    unique_questions.append(q)
-            
-            logger.info(f"After deduplication: {len(unique_questions)} unique questions")
-            
-            # Limit to 12-15 questions
-            unique_questions = unique_questions[:15]
-            
-            # Save Questions (already ordered progressively from services.py)
-            created_questions = []
-            for idx, q_data in enumerate(unique_questions):
-                question = Question.objects.create(
-                    session=session,
-                    text=q_data['text'],
-                    category=q_data.get('category', 'General'),
-                    order=idx + 1
+                questions_data = InterviewEngine.generate_questions(
+                    resume_data=resume_data,
+                    position=session.position,
+                    difficulty=session.difficulty,
+                    dialect=session.dialect,
+                    experience_level=session.experience_level,
+                    excluded_questions=excluded_questions
                 )
-                created_questions.append(question)
                 
-            session.status = 'Started'
-            session.save()
-            
-            logger.info(f"Interview started successfully with {len(created_questions)} questions")
-            
-            # Serialize Questions
-            questions_serializer = QuestionSerializer(created_questions, many=True)
-            
-            return Response({
-                'status': 'Interview Started', 
-                'questions': questions_serializer.data,
-                'total_questions': len(created_questions)
-            })
+                logger.info(f"Generated {len(questions_data)} questions")
+                
+                # Deduplicate questions (Enhanced Fuzzy Matching)
+                unique_questions = []
+                
+                def normalize_question(text):
+                    """Normalize question text for comparison."""
+                    # Remove punctuation, lowercase, and common filler words
+                    import re
+                    text = re.sub(r'[^\w\s]', '', text.lower())
+                    # Remove common question words
+                    stopwords = {'tell', 'me', 'about', 'describe', 'explain', 'what', 'how', 'why', 'can', 'you', 'a', 'an', 'the', 'your'}
+                    words = [w for w in text.split() if w not in stopwords]
+                    return ' '.join(words)
+                
+                for q in questions_data:
+                    is_duplicate = False
+                    new_text = q['text'].lower().strip()
+                    new_normalized = normalize_question(q['text'])
+                    new_words = set(new_normalized.split())
+                    
+                    for existing in unique_questions:
+                        existing_text = existing['text'].lower().strip()
+                        existing_normalized = normalize_question(existing['text'])
+                        existing_words = set(existing_normalized.split())
+                        
+                        # Check 1: Direct similarity (lower threshold)
+                        similarity = difflib.SequenceMatcher(None, new_text, existing_text).ratio()
+                        
+                        # Check 2: Word overlap (Jaccard similarity)
+                        if new_words and existing_words:
+                            intersection = len(new_words & existing_words)
+                            union = len(new_words | existing_words)
+                            word_overlap = intersection / union if union > 0 else 0
+                        else:
+                            word_overlap = 0
+                        
+                        # Mark as duplicate if either check passes
+                        if similarity > 0.6 or word_overlap > 0.7:  # 60% text similar OR 70% word overlap
+                            is_duplicate = True
+                            logger.info(f"Duplicate skipped: '{q['text'][:50]}...' (sim={similarity:.2f}, overlap={word_overlap:.2f})")
+                            break
+                    
+                    if not is_duplicate:
+                        unique_questions.append(q)
+                
+                logger.info(f"After deduplication: {len(unique_questions)} unique questions")
+                
+                # Limit to 12-15 questions
+                unique_questions = unique_questions[:15]
+                
+                # Save Questions (already ordered progressively from services.py)
+                created_questions = []
+                for idx, q_data in enumerate(unique_questions):
+                    question = Question.objects.create(
+                        session=session,
+                        text=q_data['text'],
+                        category=q_data.get('category', 'General'),
+                        order=idx + 1
+                    )
+                    created_questions.append(question)
+                    
+                session.status = 'Started'
+                session.save()
+                
+                logger.info(f"Interview started successfully with {len(created_questions)} questions")
+                
+                # Serialize Questions
+                questions_serializer = QuestionSerializer(created_questions, many=True)
+                
+                return Response({
+                    'status': 'Interview Started', 
+                    'questions': questions_serializer.data,
+                    'total_questions': len(created_questions)
+                })
             
         except Exception as e:
             logger.exception('Error starting interview: %s', e)
-            import traceback
             error_details = traceback.format_exc()
             
             return Response({
@@ -654,7 +401,6 @@ class InterviewSessionViewSet(viewsets.ModelViewSet):
             audio_file = request.FILES.get('audio_file')
             
             # Parse JSON metrics
-            import json
             fluency_metrics_raw = request.data.get('fluency_metrics', '{}')
             if isinstance(fluency_metrics_raw, str):
                 try:
@@ -694,8 +440,8 @@ class InterviewSessionViewSet(viewsets.ModelViewSet):
                     'weaknesses': ['Try to attempt every question, even with a partial answer', 'Practice builds confidence - skip less over time'],
                     'improvement_tips': ['Even a brief answer shows effort', 'Say "I would approach this by..." if unsure'],
                     'recommended_resources': [
-                        {"title": "How to Answer Interview Questions You Don't Know", "url": "https://www.youtube.com/watch?v=qIi4Xt769wQ", "topic": "Handling unknown questions"},
-                        {"title": "Interview Tips for Beginners", "url": "https://www.youtube.com/watch?v=HG68Ymazo18", "topic": "Basic interview skills"}
+                        {"title": "How to Answer Interview Questions You Don't Know", "url": "https://www.youtube.com/results?search_query=how+to+answer+interview+questions+you+dont+know", "topic": "Handling unknown questions"},
+                        {"title": "Interview Tips for Beginners", "url": "https://www.youtube.com/results?search_query=interview+tips+for+beginners", "topic": "Basic interview skills"}
                     ],
                     'star_method_used': False,
                     'content_quality_score': 0
@@ -772,7 +518,6 @@ class InterviewSessionViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             logger.exception('Error submitting response: %s', e)
-            import traceback
             error_details = traceback.format_exc()
             
             return Response({
@@ -780,6 +525,50 @@ class InterviewSessionViewSet(viewsets.ModelViewSet):
                 'detail': 'Failed to submit response. Please try again.',
                 'debug': error_details if settings.DEBUG else None
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'])
+    def analyze_body_language(self, request, pk=None):
+        """
+        Analyze body language from captured photos.
+        
+        Payload:
+        - photos: list of base64-encoded images
+        
+        Returns:
+        - posture_score: 0-100
+        - eye_contact_score: 0-100
+        - confidence_score: 0-100
+        - positive_indicators: list
+        - concerns: list
+        - summary: str
+        """
+        try:
+            session = self.get_object()
+            photos = request.data.get('photos', [])
+            
+            if not photos:
+                return Response({
+                    'posture_score': 70,
+                    'eye_contact_score': 70,
+                    'confidence_score': 70,
+                    'summary': 'No photos provided for analysis',
+                    'fallback': True
+                })
+            
+            logger.info(f"Analyzing {len(photos)} photos for session {session.id}")
+            result = analyze_multiple_photos(photos)
+            
+            return Response(result)
+            
+        except Exception as e:
+            logger.exception('Error analyzing body language: %s', e)
+            return Response({
+                'error': str(e),
+                'posture_score': 70,
+                'eye_contact_score': 70,
+                'confidence_score': 70,
+                'fallback': True
+            }, status=status.HTTP_200_OK)  # Return 200 with fallback so frontend continues
 
     @action(detail=True, methods=['post'])
     def get_encouragement(self, request, pk=None):
@@ -821,7 +610,7 @@ class InterviewSessionViewSet(viewsets.ModelViewSet):
             logger.exception('Error getting encouragement: %s', e)
             # Fallback encouragement
             return Response({
-                'message': 'Keep going! You\'re doing great! 💪',
+                'message': 'Keep going! You are doing great!',
                 'trend': 'consistent'
             })
 
@@ -951,7 +740,6 @@ Keep it encouraging and brief (2-3 sentences)."""
             
         except Exception as e:
             logger.exception('Error getting result: %s', e)
-            import traceback
             error_details = traceback.format_exc()
             
             return Response({
@@ -1181,24 +969,22 @@ Keep it encouraging and brief (2-3 sentences)."""
         
         Categories: behavioral, technical, mindset, body_language
         """
-        import random
-        
         tips = [
-            {"category": "mindset", "tip": "Treat the interview as a conversation, not an interrogation. You're evaluating them too!", "icon": "💡"},
-            {"category": "behavioral", "tip": "Always use specific examples, not hypothetical answers. Real stories are more convincing.", "icon": "📝"},
-            {"category": "technical", "tip": "It's okay to say 'I don't know, but here's how I'd figure it out.' Shows problem-solving.", "icon": "🔧"},
-            {"category": "body_language", "tip": "Keep a glass of water nearby. Sipping gives you time to think on tough questions.", "icon": "💧"},
-            {"category": "mindset", "tip": "Prepare 3 stories that showcase different skills. You can adapt them to many questions.", "icon": "📚"},
-            {"category": "behavioral", "tip": "End your STAR answers by connecting the result to the role you're applying for.", "icon": "⭐"},
-            {"category": "technical", "tip": "When asked about a technology you don't know, relate it to something similar you DO know.", "icon": "🔗"},
-            {"category": "body_language", "tip": "Mirror the interviewer's energy level. If they're enthusiastic, match that energy.", "icon": "🪞"},
-            {"category": "mindset", "tip": "Arrive 10-15 minutes early. Use that time to calm your nerves and review notes.", "icon": "⏰"},
-            {"category": "behavioral", "tip": "When describing failures, focus 80% on what you learned and did differently after.", "icon": "📈"},
-            {"category": "technical", "tip": "Practice explaining your projects to non-technical friends. Clarity beats jargon.", "icon": "🎯"},
-            {"category": "body_language", "tip": "Sit with your hands visible on the table. Hidden hands can seem untrustworthy.", "icon": "🙌"},
-            {"category": "mindset", "tip": "Rejection isn't failure—it's redirection. Each interview makes you better for the next.", "icon": "🔄"},
-            {"category": "behavioral", "tip": "Use 'I' not 'we' when describing achievements. Own your contributions.", "icon": "👤"},
-            {"category": "technical", "tip": "Before diving into a solution, ask clarifying questions. It shows thoroughness.", "icon": "❓"},
+            {"category": "mindset", "tip": "Treat the interview as a conversation, not an interrogation. You're evaluating them too!", "icon": "lightbulb"},
+            {"category": "behavioral", "tip": "Always use specific examples, not hypothetical answers. Real stories are more convincing.", "icon": "note"},
+            {"category": "technical", "tip": "It's okay to say 'I don't know, but here's how I'd figure it out.' Shows problem-solving.", "icon": "wrench"},
+            {"category": "body_language", "tip": "Keep a glass of water nearby. Sipping gives you time to think on tough questions.", "icon": "water"},
+            {"category": "mindset", "tip": "Prepare 3 stories that showcase different skills. You can adapt them to many questions.", "icon": "books"},
+            {"category": "behavioral", "tip": "End your STAR answers by connecting the result to the role you're applying for.", "icon": "star"},
+            {"category": "technical", "tip": "When asked about a technology you don't know, relate it to something similar you DO know.", "icon": "link"},
+            {"category": "body_language", "tip": "Mirror the interviewer's energy level. If they're enthusiastic, match that energy.", "icon": "mirror"},
+            {"category": "mindset", "tip": "Arrive 10-15 minutes early. Use that time to calm your nerves and review notes.", "icon": "clock"},
+            {"category": "behavioral", "tip": "When describing failures, focus 80% on what you learned and did differently after.", "icon": "chart"},
+            {"category": "technical", "tip": "Practice explaining your projects to non-technical friends. Clarity beats jargon.", "icon": "target"},
+            {"category": "body_language", "tip": "Sit with your hands visible on the table. Hidden hands can seem untrustworthy.", "icon": "hands"},
+            {"category": "mindset", "tip": "Rejection isn't failure--it's redirection. Each interview makes you better for the next.", "icon": "refresh"},
+            {"category": "behavioral", "tip": "Use 'I' not 'we' when describing achievements. Own your contributions.", "icon": "person"},
+            {"category": "technical", "tip": "Before diving into a solution, ask clarifying questions. It shows thoroughness.", "icon": "question"},
         ]
         
         tip = random.choice(tips)
@@ -1418,91 +1204,6 @@ Keep it encouraging and brief (2-3 sentences)."""
                     {"question": "What interests you about consulting?", "category": "HR", "frequency": "Common"},
                 ]
             },
-            "tech_mahindra": {
-                "name": "Tech Mahindra",
-                "logo": "TechM",
-                "culture": "Connected World, Connected Experiences",
-                "hiring_process": ["Online Test", "Technical Interview", "HR Interview"],
-                "tips": [
-                    "Focus on telecom and digital transformation knowledge",
-                    "They value entrepreneurial mindset",
-                    "Prepare for networking and 5G related questions"
-                ],
-                "common_questions": [
-                    {"question": "Why Tech Mahindra?", "category": "HR", "frequency": "Very Common"},
-                    {"question": "Explain OSI model layers", "category": "Technical", "frequency": "Common"},
-                    {"question": "How do you stay updated with technology?", "category": "Behavioral", "frequency": "Common"},
-                    {"question": "What do you know about 5G?", "category": "Technical", "frequency": "Common"},
-                ]
-            },
-            "hcl": {
-                "name": "HCL Technologies",
-                "logo": "HCL",
-                "culture": "Employee-first culture, innovation driven",
-                "hiring_process": ["Aptitude Test", "Technical Round", "HR Round"],
-                "tips": [
-                    "HCL values 'ideapreneurship' - employee innovation",
-                    "Strong focus on coding skills for freshers",
-                    "Prepare for data structures and algorithms"
-                ],
-                "common_questions": [
-                    {"question": "Tell me about yourself", "category": "HR", "frequency": "Very Common"},
-                    {"question": "Write code to reverse a linked list", "category": "Technical", "frequency": "Common"},
-                    {"question": "Where do you see yourself in 5 years?", "category": "HR", "frequency": "Common"},
-                    {"question": "Explain your major project", "category": "Technical", "frequency": "Very Common"},
-                ]
-            },
-            "capgemini": {
-                "name": "Capgemini",
-                "logo": "Capgemini",
-                "culture": "Freedom, trust, team spirit",
-                "hiring_process": ["Game-Based Assessment", "Technical Interview", "HR Interview"],
-                "tips": [
-                    "Unique game-based assessments - practice on their portal",
-                    "French multinational - global mindset valued",
-                    "Focus on problem-solving approach"
-                ],
-                "common_questions": [
-                    {"question": "Why do you want to join Capgemini?", "category": "HR", "frequency": "Very Common"},
-                    {"question": "Explain MVC architecture", "category": "Technical", "frequency": "Common"},
-                    {"question": "Tell me about a team project", "category": "Behavioral", "frequency": "Common"},
-                    {"question": "What are your strengths and weaknesses?", "category": "HR", "frequency": "Very Common"},
-                ]
-            },
-            "ibm": {
-                "name": "IBM",
-                "logo": "IBM",
-                "culture": "Think. Innovation at scale",
-                "hiring_process": ["Cognitive Assessment", "Technical Interview", "HR Interview"],
-                "tips": [
-                    "Research IBM Cloud, Watson AI, and Quantum computing",
-                    "Strong emphasis on problem-solving",
-                    "Prepare for design thinking concepts"
-                ],
-                "common_questions": [
-                    {"question": "What do you know about IBM?", "category": "HR", "frequency": "Very Common"},
-                    {"question": "Explain REST API concepts", "category": "Technical", "frequency": "Common"},
-                    {"question": "Describe a challenging problem you solved", "category": "Behavioral", "frequency": "Common"},
-                    {"question": "What is AI and machine learning?", "category": "Technical", "frequency": "Common"},
-                ]
-            },
-            "deloitte": {
-                "name": "Deloitte",
-                "logo": "Deloitte",
-                "culture": "Making an impact that matters",
-                "hiring_process": ["Online Assessment", "Case Study", "Technical + HR Interview"],
-                "tips": [
-                    "Big 4 consulting - prepare for case studies",
-                    "Research their consulting vs technology roles",
-                    "Communication skills are highly valued"
-                ],
-                "common_questions": [
-                    {"question": "Walk me through your resume", "category": "HR", "frequency": "Very Common"},
-                    {"question": "Solve this case study...", "category": "Technical", "frequency": "Common"},
-                    {"question": "Why consulting?", "category": "HR", "frequency": "Common"},
-                    {"question": "How do you handle ambiguity?", "category": "Behavioral", "frequency": "Common"},
-                ]
-            }
         }
         
         if company_filter and company_filter in companies:
@@ -1641,8 +1342,6 @@ Keep it encouraging and brief (2-3 sentences)."""
         - category: str (behavioral/technical/hr)
         - difficulty: str (easy/medium/hard)
         """
-        import random
-        
         category_filter = request.data.get('category', '').lower()
         difficulty_filter = request.data.get('difficulty', '').lower()
         

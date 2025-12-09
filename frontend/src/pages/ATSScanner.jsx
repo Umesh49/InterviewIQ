@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
     FileSearch, ArrowLeft, Upload, CheckCircle, AlertCircle,
-    Target, Zap, FileText, Briefcase
+    Target, Zap, FileText, Briefcase, Plus
 } from 'lucide-react';
-import { getResumes, getATSScore } from '../services/api';
+import { getResumes, getATSScore, uploadResume } from '../services/api';
 import Loading from '../components/Loading';
 import IconSelect from '../components/IconSelect';
 
@@ -16,24 +16,45 @@ const ATSScanner = () => {
     const [jobDescription, setJobDescription] = useState('');
     const [loading, setLoading] = useState(true);
     const [analyzing, setAnalyzing] = useState(false);
+    const [uploading, setUploading] = useState(false);
     const [result, setResult] = useState(null);
+    const fileInputRef = useRef(null);
 
     useEffect(() => {
-        const fetchResumes = async () => {
-            try {
-                const data = await getResumes();
-                setResumes(data || []);
-                if (data?.length > 0) {
-                    setSelectedResume(data[0].id);
-                }
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setLoading(false);
-            }
-        };
         fetchResumes();
     }, []);
+
+    const fetchResumes = async () => {
+        try {
+            const data = await getResumes();
+            setResumes(data || []);
+            if (data?.length > 0 && !selectedResume) {
+                setSelectedResume(data[0].id);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        
+        setUploading(true);
+        try {
+            const data = await uploadResume(file);
+            await fetchResumes();
+            setSelectedResume(data.id);
+        } catch (err) {
+            console.error(err);
+            alert('Failed to upload resume');
+        } finally {
+            setUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
 
     const handleAnalyze = async () => {
         if (!selectedResume || !jobDescription.trim()) return;
@@ -81,10 +102,33 @@ const ATSScanner = () => {
                         transition={{ delay: 0.1 }}
                     >
                         {/* Resume Selection */}
-                        <div className="card p-5">
-                            <div className="flex items-center gap-2 mb-4">
-                                <FileText className="text-blue-400" size={18} />
-                                <h3 className="font-semibold">Select Resume</h3>
+                        <div className="card p-5 relative z-20">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                    <FileText className="text-blue-400" size={18} />
+                                    <h3 className="font-semibold">Select Resume</h3>
+                                </div>
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={uploading}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
+                                >
+                                    {uploading ? (
+                                        <span className="animate-spin">...</span>
+                                    ) : (
+                                        <>
+                                            <Plus size={14} />
+                                            Upload New
+                                        </>
+                                    )}
+                                </button>
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    onChange={handleUpload}
+                                    accept=".pdf"
+                                    className="hidden"
+                                />
                             </div>
 
                             {resumes.length > 0 ? (
@@ -102,12 +146,7 @@ const ATSScanner = () => {
                                 <div className="text-center py-6 text-zinc-500">
                                     <Upload size={24} className="mx-auto mb-2 opacity-50" />
                                     <p className="text-sm">No resumes uploaded yet</p>
-                                    <button
-                                        onClick={() => navigate('/dashboard')}
-                                        className="text-blue-400 text-sm mt-2 hover:underline"
-                                    >
-                                        Upload from Dashboard
-                                    </button>
+                                    <p className="text-xs text-zinc-600 mt-1">Click "Upload New" above</p>
                                 </div>
                             )}
                         </div>
@@ -116,16 +155,16 @@ const ATSScanner = () => {
                         <div className="card p-5">
                             <div className="flex items-center gap-2 mb-4">
                                 <Briefcase className="text-purple-400" size={18} />
-                                <h3 className="font-semibold">Job Description</h3>
+                                <label htmlFor="job-description" className="font-semibold">Job Description</label>
                             </div>
                             <textarea
+                                id="job-description"
                                 value={jobDescription}
                                 onChange={(e) => setJobDescription(e.target.value)}
                                 placeholder="Paste the job description here..."
                                 className="w-full h-48 p-4 bg-zinc-900 border border-zinc-800 rounded-xl text-sm resize-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
                             />
                         </div>
-
                         {/* Analyze Button */}
                         <motion.button
                             onClick={handleAnalyze}

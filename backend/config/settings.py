@@ -102,21 +102,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'core.Student'
 
-CORS_ALLOW_ALL_ORIGINS = True # For dev
+CORS_ALLOW_ALL_ORIGINS = True  # For dev
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
-    ]
-}
-
-from datetime import timedelta
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    ],
+    # Rate limiting
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/hour',    # Anonymous users
+        'burst': '30/minute',  # For specific endpoints
+    },
+    # Custom exception handler
+    'EXCEPTION_HANDLER': 'core.utils.custom_exception_handler',
 }
 
 # Logging configuration

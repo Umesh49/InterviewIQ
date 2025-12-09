@@ -202,6 +202,30 @@ const Result = () => {
                                 />
                             </div>
 
+                            {/* Body Language Row - Photo Analysis */}
+                            {currentResp.body_language_metadata?.photo_analysis && (
+                                <div className="grid grid-cols-3 divide-x divide-white/10 border-b border-white/10 bg-white/[0.01]">
+                                    <MetricItem
+                                        icon={CheckCircle}
+                                        label="Posture"
+                                        value={`${Math.round(currentResp.body_language_metadata.photo_analysis.posture_score || 70)}%`}
+                                        status={getBodyLanguageStatus(currentResp.body_language_metadata.photo_analysis.posture_score)}
+                                    />
+                                    <MetricItem
+                                        icon={Target}
+                                        label="Eye Contact"
+                                        value={`${Math.round(currentResp.body_language_metadata.photo_analysis.eye_contact_score || 70)}%`}
+                                        status={getBodyLanguageStatus(currentResp.body_language_metadata.photo_analysis.eye_contact_score)}
+                                    />
+                                    <MetricItem
+                                        icon={Award}
+                                        label="Confidence"
+                                        value={`${Math.round(currentResp.body_language_metadata.photo_analysis.confidence_score || 70)}%`}
+                                        status={getBodyLanguageStatus(currentResp.body_language_metadata.photo_analysis.confidence_score)}
+                                    />
+                                </div>
+                            )}
+
                             {/* AI Feedback - Properly Formatted */}
                             <div className="p-5">
                                 <AIFeedbackDisplay response={currentResp} />
@@ -489,4 +513,12 @@ const getVolumeLabel = (vol) => {
     return 'Quiet';
 };
 
+const getBodyLanguageStatus = (score) => {
+    if (!score) return 'neutral';
+    if (score >= 80) return 'good';
+    if (score >= 60) return 'warning';
+    return 'bad';
+};
+
 export default Result;
+

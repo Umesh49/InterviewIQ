@@ -50,4 +50,4 @@ class VoiceService:
 
         except Exception as e:
             logger.error(f"Deepgram TTS Error: {str(e)}")
-            raise e
+            raise

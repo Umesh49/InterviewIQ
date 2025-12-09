@@ -44,7 +44,7 @@ const Footer = () => {
                     <div>
                         <p className="font-medium text-sm mb-3">Connect</p>
                         <div className="flex gap-3">
-                            <a href="https://github.com/Umesh49" target="_blank" rel="noopener noreferrer" className="text-zinc-500 hover:text-white transition-colors"><Github size={18} /></a>
+                            <a href="https://github.com/" target="_blank" rel="noopener noreferrer" className="text-zinc-500 hover:text-white transition-colors"><Github size={18} /></a>
                             <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer" className="text-zinc-500 hover:text-white transition-colors"><Linkedin size={18} /></a>
                         </div>
                     </div>
