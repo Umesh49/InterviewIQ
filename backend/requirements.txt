@@ -1,17 +1,29 @@
+# Django & REST Framework
 Django>=4.2,<5.0
 djangorestframework
-djangorestframework_simplejwt
 django-cors-headers
+
+# Environment & Utils
 python-dotenv
 requests
-google-generativeai
-openai>=1.0.0
-bytez
-language-tool-python>=2.7.0
-numpy
-pandas
-pillow
 colorama
 tqdm
-pdfminer.six
-deepgram-sdk>=3.0.0
+
+# AI Providers
+google-generativeai      # Gemini API (question generation, body language analysis)
+openai>=1.0.0            # OpenRouter compatibility (Claude, GPT-4, Llama)
+groq                     # Groq API (fast Llama inference)
+cerebras-cloud-sdk       # Cerebras API (optional)
+bytez                    # Bytez API (optional, experimental)
+
+# Text Processing
+language-tool-python>=2.7.0   # Grammar checking
+pdfminer.six                  # Resume PDF parsing
+
+# Data Processing
+numpy
+pandas
+pillow                   # Image handling
+
+# Voice (optional - backend TTS)
+deepgram-sdk>=3.0.0      # Deepgram TTS (optional)
