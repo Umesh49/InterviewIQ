@@ -9,7 +9,7 @@ An intelligent, AI-powered mock interview platform designed to help job seekers 
 ![Vite](https://img.shields.io/badge/vite-5-646CFF)
 ![TailwindCSS](https://img.shields.io/badge/tailwindcss-4-06B6D4)
 
-🌐 **[Live Demo](https://interviewiq-practice.web.app)** — *Frontend only; backend not hosted as API keys would expire. Clone the repo and add your own API keys to test the full functionality.*
+🌐 **[Live Demo](https://interviewiq-practice.web.app)** - *Frontend only; backend not hosted as API keys would expire. Clone the repo and add your own API keys to test the full functionality.*
 
 ---
 
@@ -48,65 +48,65 @@ An intelligent, AI-powered mock interview platform designed to help job seekers 
 ## ✨ Features
 
 ### 🎤 AI-Powered Mock Interviews
-- **Smart Question Generation** — Dynamic, position-specific questions tailored to your resume
-- **Duplicate Prevention** — Enhanced fuzzy matching prevents repeated questions across sessions
-- **Progressive Difficulty** — Questions adapt based on experience level (0-2, 3-5, 5-10, 10+ years)
-- **Multiple Categories** — Technical, Behavioral, Intro, and Project-based questions
-- **Session Persistence** — Refresh-safe interviews with automatic progress restoration
-- **Transaction-Safe** — Database locking prevents duplicate question creation on refresh
+- **Smart Question Generation** - Dynamic, position-specific questions tailored to your resume
+- **Duplicate Prevention** - Enhanced fuzzy matching prevents repeated questions across sessions
+- **Progressive Difficulty** - Questions adapt based on experience level (0-2, 3-5, 5-10, 10+ years)
+- **Multiple Categories** - Technical, Behavioral, Intro, and Project-based questions
+- **Session Persistence** - Refresh-safe interviews with automatic progress restoration
+- **Transaction-Safe** - Database locking prevents duplicate question creation on refresh
 
 ### 🗣️ Real-Time Voice Analysis
-- **Dual STT Support** — Toggle between Deepgram and Chrome Speech-to-Text during interviews
-- **Transcript Persistence** — Switching STT providers preserves your transcript
-- **Indian English Support** — Deepgram configured with `en-IN` for better accent recognition
-- **Auto-Scrolling Transcript** — Live transcript panel scrolls automatically as you speak
-- **Fluency Metrics** — Tracks filler words, pauses, speech pace, and word count
-- **Grammar Checking** — LanguageTool integration for grammar analysis
-- **STAR Method Detection** — Analyzes if responses follow the Situation-Task-Action-Result structure
+- **Dual STT Support** - Toggle between Deepgram and Chrome Speech-to-Text during interviews
+- **Transcript Persistence** - Switching STT providers preserves your transcript
+- **Indian English Support** - Deepgram configured with `en-IN` for better accent recognition
+- **Auto-Scrolling Transcript** - Live transcript panel scrolls automatically as you speak
+- **Fluency Metrics** - Tracks filler words, pauses, speech pace, and word count
+- **Grammar Checking** - LanguageTool integration for grammar analysis
+- **STAR Method Detection** - Analyzes if responses follow the Situation-Task-Action-Result structure
 
 ### 📹 AI Body Language Analysis
-- **Photo-Based Analysis** — Captures periodic snapshots for Gemini Vision analysis
-- **Eye Contact Tracking** — Measures gaze patterns and camera engagement
-- **Posture Analysis** — Evaluates body posture and confidence signals
-- **Toggle Camera Preview** — Show/hide camera preview in the right panel during interviews
-- **Privacy-Focused** — Photos processed server-side, not stored permanently
+- **Photo-Based Analysis** - Captures periodic snapshots for Gemini Vision analysis
+- **Eye Contact Tracking** - Measures gaze patterns and camera engagement
+- **Posture Analysis** - Evaluates body posture and confidence signals
+- **Toggle Camera Preview** - Show/hide camera preview in the right panel during interviews
+- **Privacy-Focused** - Photos processed server-side, not stored permanently
 
 ### 🎨 Modern UI/UX
-- **Animated Background** — Subtle grid pattern with gradient glows
-- **Glassmorphic Design** — Modern card styles with backdrop blur
-- **Dark Mode First** — Professional zinc-based dark theme (`#0c0c0f`)
-- **Framer Motion Animations** — Smooth entrance/exit animations throughout
-- **Responsive Layout** — Optimized for all screen sizes
-- **Live Stats Panel** — Real-time word count and elapsed time display
+- **Animated Background** - Subtle grid pattern with gradient glows
+- **Glassmorphic Design** - Modern card styles with backdrop blur
+- **Dark Mode First** - Professional zinc-based dark theme (`#0c0c0f`)
+- **Framer Motion Animations** - Smooth entrance/exit animations throughout
+- **Responsive Layout** - Optimized for all screen sizes
+- **Live Stats Panel** - Real-time word count and elapsed time display
 
 ### 📊 Comprehensive Analytics
-- **Performance Dashboard** — Track your progress over time
-- **Category Breakdown** — Scores for Communication, Content Quality, and Confidence
-- **Detailed Feedback** — AI-generated insights with specific improvement suggestions
-- **YouTube Resources** — Relevant learning videos based on identified weaknesses
-- **Historical Trends** — View performance trends across all sessions
+- **Performance Dashboard** - Track your progress over time
+- **Category Breakdown** - Scores for Communication, Content Quality, and Confidence
+- **Detailed Feedback** - AI-generated insights with specific improvement suggestions
+- **YouTube Resources** - Relevant learning videos based on identified weaknesses
+- **Historical Trends** - View performance trends across all sessions
 
 ### 📄 ATS Resume Scanner
-- **Resume Analysis** — Check how well your resume matches job descriptions
-- **Direct Upload** — Upload new resumes directly from the ATS Scanner page
-- **Keyword Matching** — Identify matching and missing keywords
-- **Score Calculation** — Get an ATS compatibility score (0-100)
-- **Actionable Suggestions** — Specific tips to improve your resume
+- **Resume Analysis** - Check how well your resume matches job descriptions
+- **Direct Upload** - Upload new resumes directly from the ATS Scanner page
+- **Keyword Matching** - Identify matching and missing keywords
+- **Score Calculation** - Get an ATS compatibility score (0-100)
+- **Actionable Suggestions** - Specific tips to improve your resume
 
 ### 🎓 Learning Resources
-- **Interview Guides** — Comprehensive tips for different interview stages
-- **Answer Templates** — Fill-in-the-blank templates for common questions (STAR method)
-- **Company Prep** — Company-specific interview preparation
-- **Quick Practice** — 3-question drill sessions for rapid skill building
-- **Daily Tips** — AI-generated interview tips
+- **Interview Guides** - Comprehensive tips for different interview stages
+- **Answer Templates** - Fill-in-the-blank templates for common questions (STAR method)
+- **Company Prep** - Company-specific interview preparation
+- **Quick Practice** - 3-question drill sessions for rapid skill building
+- **Daily Tips** - AI-generated interview tips
 
 ### 🔒 Privacy & Security
-- **Data Transparency** — Clear information about what data is stored
-- **Hard Delete** — Permanently delete all your data (resumes, interviews, responses)
-- **No Authentication Required** — Anonymous usage with simplified student model
-- **Rate Limiting** — 100 req/hour for anonymous users
-- **Input Sanitization** — HTML stripping, entity escaping, length limits
-- **File Validation** — MIME type checking, extension whitelist, size limits (2MB images, 5MB docs)
+- **Data Transparency** - Clear information about what data is stored
+- **Hard Delete** - Permanently delete all your data (resumes, interviews, responses)
+- **No Authentication Required** - Anonymous usage with simplified student model
+- **Rate Limiting** - 100 req/hour for anonymous users
+- **Input Sanitization** - HTML stripping, entity escaping, length limits
+- **File Validation** - MIME type checking, extension whitelist, size limits (2MB images, 5MB docs)
 
 ### 🤖 Multi-Provider AI System
 
